@@ -1,0 +1,10 @@
+.deps/
+.testdeps/
+out/
+*.keystore
+*.jks
+*.pass
+*.p12
+*.pem
+local.properties
+.cache/
