@@ -1,0 +1,449 @@
+package com.roshanai.app;
+
+import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.FirebaseOptions;
+import com.google.firebase.ai.FirebaseAI;
+import com.google.firebase.ai.GenerativeModel;
+import com.google.firebase.ai.java.GenerativeModelFutures;
+import com.google.firebase.ai.type.Content;
+import com.google.firebase.ai.type.GenerateContentResponse;
+import com.google.firebase.ai.type.GenerativeBackend;
+import com.google.firebase.appcheck.FirebaseAppCheck;
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory;
+
+import android.content.Intent;
+import android.speech.RecognitionListener;
+import android.speech.SpeechRecognizer;
+import java.util.ArrayList;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.concurrent.Executor;
+
+public class MainActivity extends Activity {
+  private WebView wv;
+  private GenerativeModelFutures model, model2;
+  private SpeechRecognizer sr;
+  private String initError = null;
+  private byte[] attBytes; private String attMime;
+  static final int MAX_ATTACH = 10 * 1024 * 1024;   // request limit is 20 MB incl. base64 growth
+  static final String[] ATTACH_TYPES = {"image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain"};
+
+  public class ClipboardBridge {
+    @JavascriptInterface public void copy(final String text) {
+      runOnUiThread(new Runnable() { public void run() {
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(ClipData.newPlainText("roshan-ai command", text));
+      }});
+    }
+  }
+
+  // ---- Session memory (RAM only, this process). Never written to disk, cleared by reset() or when the app process ends. ----
+  static final int MAX_TURNS = 40;          // 20 user+model pairs
+  static final int MAX_TEXT_CHARS = 40000;  // text kept in memory, oldest pairs dropped first
+  static class Turn { String role, text, mime, name; byte[] bytes; }
+  private final ArrayList<Turn> hist = new ArrayList<Turn>();
+  private String pendText, pendMime, pendName, attName; private byte[] pendBytes; private android.net.Uri shareUri;   // the message being sent (kept after a failure so RETRY can resend it exactly)
+  private boolean busy, trimmedNote; private long busySince; private int gen = 0;
+
+  private static Content toContent(Turn t) {
+    Content.Builder cb = new Content.Builder(); cb.setRole(t.role);
+    if (t.bytes != null) cb.addInlineData(t.bytes, t.mime);
+    return cb.addText(t.text).build();
+  }
+
+  // Keeps only the most recent file's bytes in memory; an earlier file is replaced by a text note so the model is not told it can still see it.
+  private void commit(String reply) {
+    for (Turn t : hist) if (t.bytes != null && pendBytes != null) { t.bytes = null; t.text = t.text + " [an earlier attached file is no longer in memory]"; }
+    Turn u = new Turn(); u.role = "user"; u.text = pendText; u.bytes = pendBytes; u.mime = pendMime; u.name = pendName; hist.add(u);
+    Turn m = new Turn(); m.role = "model"; m.text = reply; hist.add(m);
+    pendText = null; pendBytes = null; pendMime = null; pendName = null;
+    int chars = 0; for (Turn t : hist) chars += t.text.length();
+    while (hist.size() > 2 && (hist.size() > MAX_TURNS || chars > MAX_TEXT_CHARS)) {
+      chars -= hist.get(0).text.length() + hist.get(1).text.length(); hist.remove(0); hist.remove(0); trimmedNote = true; }
+  }
+
+  public class AiBridge {
+    // Sends the typed text (and an attached file, if any) together with this session's earlier turns. Result goes to window.onAiResult(id, ok, text).
+    @JavascriptInterface public boolean available() { return model != null; }
+    @JavascriptInterface public void ask(final String id, final String text) {
+      if (model == null) { deliver0(id, false, initError == null ? "AI is not set up on this device" : initError); return; }
+      if (busy && System.currentTimeMillis() - busySince < 120000) { deliver0(id, false, "Still working on your previous message. Wait for its reply first."); return; }
+      pendText = text; pendBytes = attBytes; pendMime = attMime; pendName = attName; attBytes = null; attMime = null; attName = null;   // the file is sent only now, with this message
+      start(id);
+    }
+    // Resends the last message that FAILED (same text and file). Nothing is retried that did not fail.
+    @JavascriptInterface public void retry(final String id) {
+      if (model == null) { deliver0(id, false, "AI is not set up on this device"); return; }
+      if (busy && System.currentTimeMillis() - busySince < 120000) { deliver0(id, false, "Still working on your previous message. Wait for its reply first."); return; }
+      if (pendText == null) { deliver0(id, false, "There is no failed message to retry. Type or attach it again."); return; }
+      start(id);
+    }
+    // New chat: forgets the conversation and any attached or pending file.
+    @JavascriptInterface public void reset() { gen++; hist.clear(); pendText = null; pendBytes = null; pendMime = null; pendName = null; attBytes = null; attMime = null; attName = null; busy = false; trimmedNote = false; dropShare(); }
+    @JavascriptInterface public int turns() { return hist.size() / 2; }
+  }
+
+  private void start(final String id) {
+    busy = true; busySince = System.currentTimeMillis(); trimmedNote = false;
+    run(id, model, "m1", gen);
+  }
+
+  // Tries the main model; if it fails, the lighter model; if that also looks like temporary overload, the main model once more after 4 s.
+  // Every attempt sends the same snapshot: earlier turns + this message. A failed attempt never adds anything to memory.
+  private void run(final String id, final GenerativeModelFutures m, final String tag, final int g) {
+    try {
+      Turn cur = new Turn(); cur.role = "user"; cur.text = pendText; cur.bytes = pendBytes; cur.mime = pendMime;
+      ArrayList<Content> all = new ArrayList<Content>();
+      for (Turn t : hist) all.add(toContent(t));
+      all.add(toContent(cur));
+      Content first = all.get(0); Content[] rest = all.subList(1, all.size()).toArray(new Content[0]);
+      final ListenableFuture<GenerateContentResponse> f = m.generateContent(first, rest);
+      Executor ex = new Executor() { public void execute(Runnable r) { runOnUiThread(r); } };
+      f.addListener(new Runnable() { public void run() {
+        if (g != gen) return;   // a new chat was started meanwhile: drop this reply
+        try {
+          GenerateContentResponse r = f.get();
+          String t = r.getText();
+          if (t == null || t.length() == 0) throw new IllegalStateException("empty_reply");
+          commit(t);
+          deliver(id, true, t);
+          if (trimmedNote) { trimmedNote = false; evalJs("window.onMemNote&&window.onMemNote(" + JSONObject.quote("Memory limit reached: the oldest messages were dropped from the AI's memory. They are still on screen, but the AI no longer sees them.") + ")"); }
+        } catch (Throwable e) { fail(id, tag, e, g); }
+      }}, ex);
+    } catch (Throwable e) { fail(id, tag, e, g); }
+  }
+
+  private void fail(final String id, final String tag, Throwable e, final int g) {
+    if (g != gen) return;
+    if ("m1".equals(tag) && model2 != null) { run(id, model2, "m2", g); return; }
+    if (!"m3".equals(tag) && model != null && isOverload(e)) {
+      wv.postDelayed(new Runnable() { public void run() { if (g == gen) MainActivity.this.run(id, model, "m3", g); } }, 4000);
+      return;
+    }
+    final String base = errText(e) + ("m1".equals(tag) ? " [tried: main model only]" : " [tried: main model, lighter model" + ("m3".equals(tag) ? ", main model again after a short wait" : "") + "]")
+        + " This message was NOT added to the conversation memory; RETRY sends it again.";
+    String all = String.valueOf(e.getMessage()) + (e.getCause() == null ? "" : String.valueOf(e.getCause().getMessage()));
+    if (all.toLowerCase().contains("app check")) { probeAppCheck(id, base); return; }
+    deliver(id, false, base);
+  }
+
+  // Safe diagnostic: asks App Check itself for a token and reports only the exception type and a short sanitized message (never the token).
+  private void probeAppCheck(final String id, final String base) {
+    try {
+      FirebaseAppCheck.getInstance().getAppCheckToken(true).addOnCompleteListener(new com.google.android.gms.tasks.OnCompleteListener<com.google.firebase.appcheck.AppCheckToken>() {
+        public void onComplete(com.google.android.gms.tasks.Task<com.google.firebase.appcheck.AppCheckToken> t) {
+          String d;
+          if (t.isSuccessful()) d = "token obtained on device; rejected by server";
+          else { Exception x = t.getException(); String m = x == null ? "unknown" : String.valueOf(x.getMessage()).replaceAll("AIza[0-9A-Za-z_\\-]{20,}", "[key]").replaceAll("\\s+", " ");
+            if (m.length() > 300) m = m.substring(0, 300);
+            d = (x == null ? "?" : x.getClass().getSimpleName()) + ": " + m; }
+          deliver(id, false, base + " | AppCheck probe: " + d);
+        }
+      });
+    } catch (Throwable x) { deliver(id, false, base + " | AppCheck probe failed: " + x.getClass().getSimpleName()); }
+  }
+
+  public class SchedBridge {
+    private JSONObject res(boolean ok, String err) {
+      JSONObject o = new JSONObject();
+      try { o.put("ok", ok); if (err != null) o.put("error", err); } catch (Exception e) { }
+      return o;
+    }
+    // kind: alarm|reminder. Wall-clock fields in the phone's current timezone.
+    @JavascriptInterface public String add(String kind, String title, int y, int mo, int d, int h, int mi) {
+      try {
+        if (!"alarm".equals(kind) && !"reminder".equals(kind)) return res(false, "bad_kind").toString();
+        long at;
+        try { at = Sched.epoch(y, mo, d, h, mi); } catch (IllegalArgumentException e) { return res(false, "invalid_time").toString(); }
+        if (at <= System.currentTimeMillis() + 5000) return res(false, "in_the_past").toString();
+        if (!Sched.notificationsOn(MainActivity.this)) { askNotifications(); return res(false, "notifications_off").toString(); }
+        JSONObject it = new JSONObject();
+        String id = Long.toString(System.currentTimeMillis()) + Integer.toString((int) (Math.random() * 1000));
+        it.put("id", id).put("kind", kind).put("title", title).put("y", y).put("mo", mo).put("d", d).put("h", h).put("mi", mi);
+        Sched.ensureChannels(MainActivity.this);
+        Sched.arm(MainActivity.this, it);                 // OS accepts (throws otherwise)
+        JSONArray a = Sched.load(MainActivity.this);
+        a.put(it);
+        if (!Sched.save(MainActivity.this, a)) { Sched.disarm(MainActivity.this, id); return res(false, "save_failed").toString(); }
+        return res(true, null).put("id", id).put("at", it.getLong("at")).toString();
+      } catch (SecurityException e) {
+        return res(false, "os_refused").toString();
+      } catch (Throwable e) {
+        return res(false, "error_" + e.getClass().getSimpleName()).toString();
+      }
+    }
+    @JavascriptInterface public String list() {
+      JSONArray a = Sched.load(MainActivity.this);
+      try { for (int i = 0; i < a.length(); i++) { JSONObject it = a.getJSONObject(i);
+        it.put("at", Sched.epoch(it.getInt("y"), it.getInt("mo"), it.getInt("d"), it.getInt("h"), it.getInt("mi"))); } } catch (Exception e) { }
+      return a.toString();
+    }
+    @JavascriptInterface public boolean cancel(String id) {
+      JSONArray in = Sched.load(MainActivity.this), out = new JSONArray(); boolean found = false;
+      try { for (int i = 0; i < in.length(); i++) { JSONObject it = in.getJSONObject(i);
+        if (id.equals(it.optString("id"))) found = true; else out.put(it); } } catch (Exception e) { }
+      if (!found) return false;
+      Sched.disarm(MainActivity.this, id);
+      return Sched.save(MainActivity.this, out);
+    }
+    @JavascriptInterface public String status() {
+      JSONObject o = new JSONObject();
+      try { o.put("notifications", Sched.notificationsOn(MainActivity.this)).put("sdk", android.os.Build.VERSION.SDK_INT); } catch (Exception e) { }
+      return o.toString();
+    }
+    @JavascriptInterface public void openNotificationSettings() {
+      runOnUiThread(new Runnable() { public void run() {
+        Intent i = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName());
+        startActivity(i);
+      }});
+    }
+  }
+
+
+
+
+  // Revokes the grant and deletes the temporary copy.
+  private void dropShare() {
+    Sharer.revoke(this, shareUri);
+    shareUri = null; Sharer.purge(this);
+  }
+
+  public class ShareBridge {
+    // Local only: shares the retained chat file (pending attachment, else a failed message's file, else the latest sent file). No AI call, no memory change.
+    @JavascriptInterface public String shareFile() {
+      JSONObject o = new JSONObject();
+      try {
+        byte[] b = attBytes; String m = attMime, n = attName; String src = "attached";
+        if (b == null && pendBytes != null) { b = pendBytes; m = pendMime; n = pendName; src = "in the last message"; }
+        if (b == null) for (int i = hist.size() - 1; i >= 0; i--) { Turn t = hist.get(i); if (t.bytes != null) { b = t.bytes; m = t.mime; n = t.name; src = "sent earlier in this chat"; break; } }
+        if (b == null) return o.put("ok", false).put("error", "none").toString();
+        dropShare();
+        java.io.File f = Sharer.stage(MainActivity.this, b, n, m);
+        if (f == null) return o.put("ok", false).put("error", "stage_failed").toString();
+        android.net.Uri u = androidx.core.content.FileProvider.getUriForFile(MainActivity.this, Sharer.AUTHORITY, f);
+        shareUri = u;
+        startActivity(Sharer.chooser(u, m));
+        return o.put("ok", true).put("name", f.getName()).put("source", src).toString();
+      } catch (Throwable e) { dropShare(); try { return o.put("ok", false).put("error", "error_" + e.getClass().getSimpleName()).toString(); } catch (Exception x) { return "{}"; } }
+    }
+  }
+
+  public class AttachBridge {
+    @JavascriptInterface public void pick() {
+      runOnUiThread(new Runnable() { public void run() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, ATTACH_TYPES).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
+        try { startActivityForResult(i, 21); } catch (Throwable e) { attachDone(false, "no_picker", null, null, 0, null); }
+      }});
+    }
+    @JavascriptInterface public void clear() { attBytes = null; attMime = null; attName = null; dropShare(); }
+  }
+
+  private void attachDone(boolean ok, String err, String name, String mime, long size, String thumb) {
+    try {
+      JSONObject o = new JSONObject().put("ok", ok).put("error", err == null ? "" : err).put("name", name == null ? "" : name)
+          .put("mime", mime == null ? "" : mime).put("size", size).put("thumb", thumb == null ? "" : thumb);
+      final String js = "window.onAttach&&window.onAttach(" + JSONObject.quote(o.toString()) + ")";
+      runOnUiThread(new Runnable() { public void run() { if (wv != null) wv.evaluateJavascript(js, null); } });
+    } catch (Exception e) { }
+  }
+
+  static String mimeFor(String type, String name) {
+    String t = type == null ? "" : type.toLowerCase();
+    String n = name == null ? "" : name.toLowerCase();
+    if (t.equals("image/jpg")) t = "image/jpeg";
+    for (String a : ATTACH_TYPES) if (a.equals(t)) return a;
+    if (t.length() == 0 || t.equals("application/octet-stream")) {
+      if (n.endsWith(".png")) return "image/png"; if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+      if (n.endsWith(".webp")) return "image/webp"; if (n.endsWith(".pdf")) return "application/pdf"; if (n.endsWith(".txt")) return "text/plain";
+    }
+    return null;
+  }
+
+  @Override protected void onActivityResult(int req, int res, Intent data) {
+    super.onActivityResult(req, res, data);
+    if (req != 21) return;
+    if (res != RESULT_OK || data == null || data.getData() == null) return;   // cancelled: nothing selected
+    android.net.Uri u = data.getData();
+    String name = u.getLastPathSegment() == null ? "file" : u.getLastPathSegment(); long size = -1;
+    try (android.database.Cursor c = getContentResolver().query(u, null, null, null, null)) {
+      if (c != null && c.moveToFirst()) {
+        int ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME), si = c.getColumnIndex(android.provider.OpenableColumns.SIZE);
+        if (ni >= 0 && !c.isNull(ni)) name = c.getString(ni);
+        if (si >= 0 && !c.isNull(si)) size = c.getLong(si);
+      }
+    } catch (Throwable e) { }
+    String mime = mimeFor(getContentResolver().getType(u), name);
+    if (mime == null) { attachDone(false, "unsupported", name, null, size, null); return; }
+    if (size > MAX_ATTACH) { attachDone(false, "too_large", name, mime, size, null); return; }
+    try (java.io.InputStream in = getContentResolver().openInputStream(u)) {
+      java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+      byte[] buf = new byte[16384]; int n; long tot = 0;
+      while ((n = in.read(buf)) > 0) { tot += n; if (tot > MAX_ATTACH) { attachDone(false, "too_large", name, mime, tot, null); return; } bo.write(buf, 0, n); }
+      byte[] b = bo.toByteArray();
+      if (b.length == 0) { attachDone(false, "empty", name, mime, 0, null); return; }
+      String thumb = null;
+      if (mime.startsWith("image/")) {
+        try {
+          android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options(); o.inJustDecodeBounds = true;
+          android.graphics.BitmapFactory.decodeByteArray(b, 0, b.length, o);
+          int ss = 1; while (o.outWidth / (ss * 2) >= 128 && o.outHeight / (ss * 2) >= 128) ss *= 2;
+          android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options(); o2.inSampleSize = ss;
+          android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeByteArray(b, 0, b.length, o2);
+          if (bm != null) { java.io.ByteArrayOutputStream tb = new java.io.ByteArrayOutputStream(); bm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, tb);
+            thumb = "data:image/jpeg;base64," + android.util.Base64.encodeToString(tb.toByteArray(), android.util.Base64.NO_WRAP); }
+        } catch (Throwable e) { }
+      }
+      attBytes = b; attMime = mime; attName = name;
+      attachDone(true, null, name, mime, b.length, thumb);
+    } catch (Throwable e) { attachDone(false, "unreadable", name, mime, size, null); }
+  }
+
+  public class VoiceBridge {
+    @JavascriptInterface public boolean supported() { return SpeechRecognizer.isRecognitionAvailable(MainActivity.this); }
+    @JavascriptInterface public boolean offlineHint() { return false; }
+    @JavascriptInterface public void start() {
+      runOnUiThread(new Runnable() { public void run() {
+        if (!SpeechRecognizer.isRecognitionAvailable(MainActivity.this)) { voiceDone(false, "no_recognizer"); return; }
+        if (android.os.Build.VERSION.SDK_INT >= 23 && checkSelfPermission("android.permission.RECORD_AUDIO") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+          requestPermissions(new String[]{"android.permission.RECORD_AUDIO"}, 8);
+          voiceDone(false, "mic_permission_requested"); return;
+        }
+        if (sr != null) { sr.destroy(); }
+        sr = SpeechRecognizer.createSpeechRecognizer(MainActivity.this);
+        sr.setRecognitionListener(new RecognitionListener() {
+          public void onResults(Bundle r) {
+            ArrayList<String> l = r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+            if (l == null || l.isEmpty()) voiceDone(false, "no_speech"); else voiceDone(true, l.get(0));
+          }
+          public void onError(int e) { voiceDone(false, e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "no_speech" : "error_" + e); }
+          public void onReadyForSpeech(Bundle b) {}
+          public void onBeginningOfSpeech() {}
+          public void onRmsChanged(float v) {}
+          public void onBufferReceived(byte[] b) {}
+          public void onEndOfSpeech() {}
+          public void onPartialResults(Bundle b) {}
+          public void onEvent(int t, Bundle b) {}
+        });
+        Intent i = new Intent("android.speech.action.RECOGNIZE_SPEECH")
+            .putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form").putExtra("android.speech.extra.MAX_RESULTS", 1);
+        sr.startListening(i);
+      }});
+    }
+    @JavascriptInterface public void stop() {
+      runOnUiThread(new Runnable() { public void run() { if (sr != null) sr.stopListening(); } });
+    }
+  }
+
+  private void voiceDone(boolean ok, String text) {
+    final String js = "window.onVoiceResult&&window.onVoiceResult(" + ok + "," + JSONObject.quote(text) + ")";
+    runOnUiThread(new Runnable() { public void run() { if (wv != null) wv.evaluateJavascript(js, null); } });
+  }
+
+  @Override protected void onDestroy() {
+    if (sr != null) { sr.destroy(); sr = null; }
+    super.onDestroy();
+  }
+
+  static final String SYSTEM_PROMPT =
+      "You are Roshan AI, the personal assistant of Roshan Zameer, inside his private Android app. "
+    + "When asked who or what you are, or to introduce yourself, say you are Roshan AI, his personal assistant. "
+    + "Do not introduce yourself as Gemini or say that Google trained you as your identity. "
+    + "If he sincerely asks what technology or model powers you, answer honestly that you run on Google's Gemini AI; never deny it. "
+    + "Be accurate about how you work: the app runs on his phone, but your answers are produced online by Google's Gemini service. "
+    + "What he types, and any file he attaches with the FILE button and then sends, is sent over the internet to that service. You are not an official Google product. "
+    + "You can only see what he types and the photos, PDFs or text files he attaches. Within the current chat you can see his earlier messages, your earlier replies and the most recently attached file, until he starts a new chat or the app is closed. Never say he closed the app unless he told you so. You keep nothing after that. A message that shows an error was not saved to your memory, so do not pretend you saw it. "
+    + "In this version you are not connected to his Gmail, Drive, Calendar, contacts, phone files or any account, so you cannot read or change them. "
+    + "Say it is not connected in this version when asked; do not say it is impossible, and do not promise it will be added. "
+    + "Reminders and alarms are set by the app itself when he asks for one in plain words; do not claim you set one yourself in your reply. "
+    + "Keep replies clear and reasonably short.";
+
+  private void askNotifications() {
+    if (android.os.Build.VERSION.SDK_INT >= 33) {
+      runOnUiThread(new Runnable() { public void run() {
+        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
+      }});
+    }
+  }
+
+  // Non-secret support code: exception type plus a short sanitized message. Not a diagnosis.
+  private static boolean isOverload(Throwable e) {
+    for (Throwable t = e; t != null; t = (t.getCause() == t ? null : t.getCause())) {
+      String m = String.valueOf(t.getMessage()).toLowerCase();
+      if (m.contains("high demand") || m.contains("overloaded") || m.contains("unavailable") || m.contains("503")) return true;
+    }
+    return false;
+  }
+
+  private static String errText(Throwable e) {
+    Throwable r = e; while (r.getCause() != null && r.getCause() != r) r = r.getCause();
+    String m = String.valueOf(r.getMessage()).replaceAll("AIza[0-9A-Za-z_\\-]{20,}", "[key]").replaceAll("\\s+", " ");
+    if (m.length() > 140) m = m.substring(0, 140);
+    return "Couldn't reach Gemini. Support code: " + e.getClass().getSimpleName() + (r != e ? "/" + r.getClass().getSimpleName() : "") + " - " + m;
+  }
+
+  private void deliver(String id, boolean ok, String text) { busy = false; deliver0(id, ok, text); }
+  private void deliver0(String id, boolean ok, String text) {
+    evalJs("window.onAiResult&&window.onAiResult(" + JSONObject.quote(id) + "," + ok + "," + JSONObject.quote(text) + ")");
+  }
+  private void evalJs(final String js) { runOnUiThread(new Runnable() { public void run() { wv.evaluateJavascript(js, null); } }); }
+
+  @Override protected void onCreate(Bundle b) {
+    super.onCreate(b);
+    Sharer.purge(this);
+    getWindow().setStatusBarColor(Color.parseColor("#04070b"));
+    getWindow().setNavigationBarColor(Color.parseColor("#04070b"));
+    try {
+      FirebaseOptions opts = new FirebaseOptions.Builder()
+          .setApiKey("AIzaSyAWIBab-pb6-Bkew0_4fdgNkC_xkDFkmmI").setApplicationId("1:675436672074:android:964b37fbfabaf1e03da2b3").setProjectId("roshan-ai-app-17803").setGcmSenderId("675436672074").build();
+      FirebaseApp app;
+      try { app = FirebaseApp.getInstance(); }               // activity re-created in the same process
+      catch (IllegalStateException none) { app = FirebaseApp.initializeApp(this, opts); }
+      if (app == null) throw new IllegalStateException("Firebase config missing");
+      FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+          PlayIntegrityAppCheckProviderFactory.getInstance());
+      Content sys = new Content.Builder().addText(SYSTEM_PROMPT).build();
+      GenerativeModel gm = FirebaseAI.getInstance(GenerativeBackend.googleAI())
+          .generativeModel("gemini-3.8-flash", new com.google.firebase.ai.type.GenerationConfig.Builder().setThinkingConfig(new com.google.firebase.ai.type.ThinkingConfig.Builder().setThinkingLevel(com.google.firebase.ai.type.ThinkingLevel.LOW).build()).build(), null, null, null, sys);
+      model = GenerativeModelFutures.from(gm);
+      model2 = GenerativeModelFutures.from(FirebaseAI.getInstance(GenerativeBackend.googleAI()).generativeModel("gemini-3.5-flash-lite", null, null, null, null, sys));
+    } catch (Throwable e) {
+      initError = errText(e);
+      model = null;
+    }
+    wv = new WebView(this);
+    WebSettings s = wv.getSettings();
+    s.setJavaScriptEnabled(true);
+    s.setDomStorageEnabled(false);
+    s.setAllowContentAccess(false);
+    s.setMediaPlaybackRequiresUserGesture(true);
+    wv.addJavascriptInterface(new ClipboardBridge(), "AndroidClipboard");
+    wv.addJavascriptInterface(new AiBridge(), "AndroidAI");
+    wv.addJavascriptInterface(new SchedBridge(), "AndroidSched");
+    wv.addJavascriptInterface(new VoiceBridge(), "AndroidVoice");
+    wv.addJavascriptInterface(new AttachBridge(), "AndroidAttach");
+    wv.addJavascriptInterface(new Launcher.Bridge(this), "AndroidApps");
+    wv.addJavascriptInterface(new ShareBridge(), "AndroidShare");
+    Sched.ensureChannels(this);
+    wv.setBackgroundColor(Color.parseColor("#04070b"));
+    setContentView(wv);
+    wv.loadUrl("file:///android_asset/app.html");
+  }
+
+  @Override public void onBackPressed() {
+    if (wv != null && wv.canGoBack()) wv.goBack(); else super.onBackPressed();
+  }
+}
