@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04070b">
+<title>Roshan AI</title>
+<style>
+  :root{
+    --bg:#04070b; --cyan:#6ff2ff; --gold:#ffc34d; --purple:#b78cff; --pink:#ff6fd8;
+    --ink:#cfe9f2; --dim:#5b7a86;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; background:var(--bg); overflow:hidden;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--ink)}
+  #app{position:fixed; inset:0; display:flex; flex-direction:column;
+    max-width:760px; margin:0 auto; }
+  /* ---------- header ---------- */
+  header{padding:14px 16px 6px; position:relative; z-index:3}
+  h1{font-size:clamp(22px,6vw,34px); letter-spacing:.35em; font-weight:700; color:#eafcff;
+    text-shadow:0 0 8px rgba(111,242,255,.9),0 0 26px rgba(111,242,255,.45),0 0 60px rgba(183,140,255,.35);}
+  .sub{margin-top:3px; font-size:10px; letter-spacing:.42em; color:var(--gold);
+    text-shadow:0 0 10px rgba(255,195,77,.6)}
+  .rule{height:1px; margin-top:8px;
+    background:linear-gradient(90deg,transparent,rgba(111,242,255,.7),rgba(255,195,77,.7),transparent)}
+  .chips{display:flex; gap:10px; margin-top:6px; font-size:9px; letter-spacing:.18em; color:var(--dim)}
+  .chips b{color:var(--cyan); font-weight:400}
+  .chips .gfx{margin-left:auto; color:var(--purple)}
+  /* ---------- dashboard ---------- */
+  #dash{position:absolute; inset:0; z-index:0; pointer-events:none}
+  body.pk #dash{z-index:20; pointer-events:auto}
+  #hero{position:absolute; inset:0; width:100%; height:100%; opacity:.32}
+  body.pk #hero{opacity:1}
+  .panel{position:absolute; background:rgba(6,12,17,.72); border:1px solid rgba(111,242,255,.14);
+    border-radius:6px; padding:6px 8px; z-index:2; opacity:.12}
+  .panel h2{font-size:8px; letter-spacing:.24em; color:var(--dim); font-weight:400; margin-bottom:4px}
+  .panel h2 b{color:var(--cyan); font-weight:400}
+  #p-wave{top:8px; right:10px; width:118px}
+  #p-queue{top:78px; right:10px; width:118px}
+  #p-split{top:148px; right:10px; width:118px}
+  #p-cycle{top:224px; right:10px; width:118px; font-size:8.5px; line-height:1.7; color:#9fd8e2}
+  #p-cycle .on{color:var(--gold); text-shadow:0 0 8px rgba(255,195,77,.7)}
+  #p-tele{left:10px; bottom:58px; width:158px; font-size:8.5px; line-height:1.75; color:#9fd8e2}
+  #p-tele div{display:flex; justify-content:space-between; gap:8px}
+  #p-tele span{color:var(--cyan); text-align:right}
+  #p-strip{left:10px; right:10px; bottom:8px; height:44px; padding:4px 8px}
+  #strip{width:100%; height:100%}
+  .pcanvas{width:100%; display:block}
+  /* ---------- graphics picker ---------- */
+  #picker{position:absolute; left:0; right:0; top:0; bottom:0; z-index:5; display:none;
+    background:rgba(3,6,10,.92); backdrop-filter:blur(4px); padding:10px 12px; overflow-y:auto}
+  #picker.open{display:block}
+  #picker h3{font-size:10px; letter-spacing:.3em; color:var(--dim); font-weight:400;
+    margin:2px 2px 10px; display:flex; justify-content:space-between}
+  #picker h3 span{color:var(--cyan)}
+  #grid{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .card{background:rgba(9,16,22,.9); border:1px solid rgba(111,242,255,.18); border-radius:8px;
+    padding:6px; cursor:pointer; transition:border-color .15s, box-shadow .15s}
+  .card:active{transform:scale(.97)}
+  .card.active{border-color:var(--gold); box-shadow:0 0 14px rgba(255,195,77,.35)}
+  .card canvas{width:100%; height:74px; display:block; border-radius:5px; background:#050a0f}
+  .card .nm{margin-top:5px; font-size:9px; letter-spacing:.16em; color:#9fd8e2; text-align:center}
+  .card.active .nm{color:var(--gold)}
+  /* ---------- chat ---------- */
+  #chat{position:relative; z-index:4; display:flex; flex-direction:column; flex:1; min-height:0; justify-content:flex-end;
+    background:linear-gradient(to bottom,rgba(4,8,12,0),rgba(4,8,12,.55) 30%)}
+  #log{flex:1; min-height:0; overflow-y:auto; padding:10px 12px 4px; display:flex; flex-direction:column; gap:8px}
+  #log>:first-child{margin-top:auto}
+  .msg{max-width:82%; overflow-wrap:anywhere; word-break:break-word; min-width:0; padding:8px 11px; border-radius:12px; font-size:12.5px; line-height:1.45;
+    animation:pop .25s ease}
+  @keyframes pop{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+  .me{align-self:flex-end; background:rgba(8,32,40,.88); border:1px solid rgba(111,242,255,.4);
+    color:#dffaff; border-bottom-right-radius:3px}
+  .ai{align-self:flex-start; background:rgba(26,16,44,.9); border:1px solid rgba(183,140,255,.45);
+    color:#e9defc; border-bottom-left-radius:3px}
+  .ai.note{opacity:.75;font-size:11px;border-style:dashed}
+  .cp{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:40px;margin:0 -6px -8px 0;padding:0 6px;border:0;background:transparent;color:#8fa8b8;font:inherit;font-size:10px;letter-spacing:.06em;opacity:.8}
+  .cp svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6}
+  .cprow{display:flex;justify-content:flex-end}
+  .rty{margin-top:6px;padding:4px 10px;border:1px solid #ffc457;background:rgba(255,196,87,.12);color:#ffd88a;border-radius:8px;font:inherit;font-size:11px;letter-spacing:.05em}
+  .ai.dots{color:var(--dim); letter-spacing:.3em}
+  #att{display:none; margin:0 12px 2px; padding:8px 10px; border:1px solid rgba(255,196,87,.45); border-radius:10px; background:rgba(26,20,8,.9); font-size:11px; color:#f0dcb0}
+  #att.on{display:block}
+  #att .row{display:flex; align-items:center; gap:10px}
+  #att img{width:44px; height:44px; object-fit:cover; border-radius:6px}
+  #att .nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#fff3d4}
+  #att .x{background:none; border:1px solid rgba(255,196,87,.5); color:#ffd88a; border-radius:8px; padding:6px 10px; font:inherit; font-size:11px; cursor:pointer}
+  #att .warn{margin-top:6px; line-height:1.35; color:#d9bf86; font-size:10.5px}
+  #pbtn{background:rgba(111,242,255,.1);border:1px solid rgba(111,242,255,.45);color:#aef;border-radius:10px;padding:0 6px;font:inherit;font-size:10px;letter-spacing:.04em;cursor:pointer}
+  #fbtn{background:rgba(255,196,87,.12);border:1px solid rgba(255,196,87,.5);color:#ffd88a;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
+  #bar{display:flex; gap:8px; padding:10px 12px calc(12px + env(safe-area-inset-bottom))}
+  #inp{flex:1; min-width:0; background:rgba(111,242,255,.06); border:1px solid rgba(111,242,255,.3);
+    border-radius:10px; padding:11px 13px; color:#eafcff; font:inherit; font-size:13px; outline:none}
+  #inp:focus{border-color:var(--cyan); box-shadow:0 0 14px rgba(111,242,255,.25)}
+  #inp::placeholder{color:var(--dim)}
+  #send{background:linear-gradient(135deg,rgba(111,242,255,.22),rgba(183,140,255,.22));
+    border:1px solid rgba(111,242,255,.55); color:var(--cyan); border-radius:10px;
+    padding:0 12px; font:inherit; font-size:12px; letter-spacing:.12em; cursor:pointer;
+    text-shadow:0 0 8px rgba(111,242,255,.7)}
+  #send:active{transform:scale(.96)}
+  #mic{background:rgba(183,140,255,.14);border:1px solid rgba(183,140,255,.5);color:#d9c2ff;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
+  #mic.on{background:rgba(255,90,120,.25);border-color:#ff5a78;color:#ffd5dc}
+  .msg{white-space:pre-wrap}
+  @media (max-width:430px){
+    #p-tele{width:132px}
+    #p-wave,#p-queue,#p-split,#p-cycle{width:104px}
+  }
+  /* background responds to a finger by default; only empty areas reach it, messages/buttons/input keep their own touches */
+  #dash{pointer-events:auto; touch-action:none}
+  header{pointer-events:none}
+  #chat,#log{pointer-events:none}
+  #log .msg,#bar,#att,#plib{pointer-events:auto}
+  /* composer: full-width typing field on top, four buttons in their own row below */
+  #bar{flex-wrap:wrap; gap:8px}
+  #inp{flex:1 1 100%; order:0; width:100%}
+  #pbtn,#fbtn,#mic,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
+#plib{display:none;max-height:42vh;overflow:auto;border-top:1px solid #1d6;padding:8px;background:rgba(0,0,0,.82)}
+#plib.on{display:block}
+#plib h4{margin:6px 0 4px;font-size:11px;letter-spacing:1px;color:#7fe}
+#plib .pi{display:block;width:100%;text-align:left;margin:3px 0;padding:8px;border:1px solid #2a6;background:#0a1a14;color:#cfe;font:12px monospace;border-radius:4px}
+#plib .pi b{display:block;color:#fff}#plib .pi i{font-style:normal;opacity:.75}
+#plib .pi[disabled]{opacity:.5;border-style:dashed}
+#plib .note{font-size:11px;opacity:.8;margin:2px 0 6px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>ROSHAN AI</h1>
+    <div class="sub">PERSONAL COMMAND DECK</div>
+    <div class="rule"></div>
+    <div class="chips"><span>SPIN <b id="chip-spin">240.0°</b></span><span>AXIS <b>LOCK</b></span><span>AI <b>CLOUD</b></span><span class="gfx" id="chip-gfx">FILAMENT TORUS</span></div>
+  </header>
+
+  <div id="dash">
+    <canvas id="hero"></canvas>
+
+    <div class="panel" id="p-wave"><h2>DISCOVERY <b>LOAD</b></h2><canvas class="pcanvas" id="cv-wave" height="26"></canvas></div>
+    <div class="panel" id="p-queue"><h2>CYPHER <b>QUEUES</b></h2><canvas class="pcanvas" id="cv-queue" height="26"></canvas></div>
+    <div class="panel" id="p-split"><h2>COMPUTE <b>SPLIT</b></h2><canvas class="pcanvas" id="cv-split" height="34"></canvas></div>
+    <div class="panel" id="p-cycle"><h2>CYCLE <b>STATE</b></h2>
+      <div id="cyc"><div>01 SOL PROPOSE</div><div>02 OPUS CYPHER</div><div>03 ISOLATED EVAL</div><div>04 META DISTILL</div></div>
+    </div>
+    <div class="panel" id="p-tele"><h2>TELEMETRY <b>READOUT</b></h2>
+      <div>YAW / PITCH <span id="t-yp">—</span></div>
+      <div>NODES <span id="t-n">—</span></div>
+      <div>EDGES <span id="t-e">—</span></div>
+      <div>SEED <span id="t-s">—</span></div>
+      <div>CYCLE <span id="t-c">—</span></div>
+    </div>
+    <div class="panel" id="p-strip"><canvas id="strip"></canvas></div>
+
+    <div id="picker">
+      <h3>GRAPHIC SELECT <span>/graphics</span></h3>
+      <div id="grid"></div>
+    </div>
+  </div>
+
+  <div id="chat">
+    <div id="log"></div>
+    <div id="att"><div class="row"><img id="att-th" alt="" style="display:none"><div class="nm" id="att-nm"></div><button class="x" id="att-x" type="button">REMOVE</button></div>
+      <div class="warn">This file will go to Google's free Gemini service when you press SEND. It may be used to improve Google products or be reviewed by people. Don't attach confidential or sensitive files. Nothing is sent until you press SEND.</div></div>
+    <div id="plib"></div>
+    <div id="bar">
+      <input id="inp" type="text" placeholder="Type a command…" autocomplete="off" enterkeyhint="send">
+      <button id="pbtn" type="button">PROMPTS</button>
+      <button id="fbtn" type="button">FILE</button>
+      <button id="mic" type="button">MIC</button>
+      <button id="send" type="button">SEND</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(function(){
+"use strict";
+var REPLY = "thanks for the command my master I'll work on this and reply back with results.";
+var TAU = Math.PI*2;
+var CYAN=[111,242,255], GOLD=[255,195,77], PURPLE=[183,140,255], PINK=[255,111,216], ICE=[190,235,250];
+function rgba(c,a){return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';}
+function rng(seed){var s=seed>>>0;return function(){s=(s*1664525+1013904223)>>>0;return s/4294967296;};}
+var PA={ax:0,ay:0,vx:0,vy:0,on:false,apply:false,trail:[],down:false,lx:0,ly:0};
+function rot3(p,ax,ay){if(PA.apply){ax+=PA.ax;ay+=PA.ay;}var x=p[0],y=p[1],z=p[2];var c=Math.cos(ax),s=Math.sin(ax);
+  var y1=y*c-z*s,z1=y*s+z*c;c=Math.cos(ay);s=Math.sin(ay);return [x*c+z1*s,y1,-x*s+z1*c];}
+function fit(cv){var r=cv.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);
+  cv.width=Math.max(2,r.width*d);cv.height=Math.max(2,r.height*d);return d;}
+function glow(ctx,W,H,inner){var g=ctx.createRadialGradient(W/2,H/2,10,W/2,H/2,Math.min(W,H)*0.7);
+  g.addColorStop(0,inner);g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+
+/* ================= design 1: filament torus (original) ================= */
+var torusState=null;
+function drawTorus(ctx,W,H,t,DPR){
+  if(!torusState){var R=1.35,r=0.44,S=[],i,r1=rng(7);
+    for(i=0;i<180;i++){var v0=r1()*TAU,band=r1();
+      var col=band<0.70?ICE:band<0.86?CYAN:band<0.96?GOLD:PURPLE;
+      if(v0>3.4&&v0<4.6&&r1()<0.6)col=GOLD;
+      S.push({v:v0,wob:0.008+r1()*0.045,ph:r1()*TAU,sp:0.15+r1()*0.5,col:col,
+        a:0.06+r1()*0.22,hero:r1()<0.14,rj:1+(r1()-0.5)*0.14});}
+    var P=[];for(i=0;i<130;i++)P.push({u:r1()*TAU,v:r1()*TAU,d:0,s:0.002+r1()*0.006});
+    torusState={R:R,r:r,S:S,P:P};}
+  var st0=torusState,cx=W*0.42,cy=H*0.5,scale=Math.min(W,H)*0.33;
+  glow(ctx,W,H,'rgba(100,200,240,0.20)');
+  ctx.globalCompositeOperation='lighter';
+  var ax=0.40+Math.sin(t*0.10)*0.06,ay=t*0.22,i,j;
+  for(i=0;i<st0.S.length;i++){var st=st0.S[i],v=st.v+Math.sin(t*st.sp+st.ph)*0.05;
+    ctx.beginPath();
+    for(j=0;j<=60;j++){var u=j/60*TAU+t*0.05;
+      var rr=(st0.R+st0.r*Math.cos(v))*st.rj+Math.sin(u*3+st.ph+t)*st.wob;
+      var p=rot3([rr*Math.cos(u),rr*Math.sin(u),st0.r*Math.sin(v)+Math.cos(u*2+st.ph)*st.wob],ax,ay);
+      var pe=3.4/(3.4+p[2]);
+      j===0?ctx.moveTo(cx+p[0]*scale*pe,cy+p[1]*scale*pe):ctx.lineTo(cx+p[0]*scale*pe,cy+p[1]*scale*pe);}
+    ctx.strokeStyle=rgba(st.col,st.a);ctx.lineWidth=DPR*0.9;ctx.stroke();
+    if(st.hero){ctx.strokeStyle=rgba([Math.min(st.col[0]+90,255),Math.min(st.col[1]+30,255),st.col[2]],0.55);
+      ctx.lineWidth=DPR*0.6;ctx.stroke();}}
+  for(i=0;i<st0.P.length;i++){var sp=st0.P[i];sp.d+=sp.s;
+    if(sp.d>1){sp.d=0;sp.u=Math.random()*TAU;sp.v=Math.random()*TAU;}
+    var rr2=(st0.R+st0.r*Math.cos(sp.v))*(1+sp.d*0.35);
+    var q=rot3([rr2*Math.cos(sp.u),rr2*Math.sin(sp.u),st0.r*Math.sin(sp.v)*(1+sp.d*0.6)],ax,ay);
+    var pe2=3.4/(3.4+q[2]);
+    ctx.fillStyle='rgba(200,245,255,'+(0.5*(1-sp.d))+')';
+    ctx.fillRect(cx+q[0]*scale*pe2,cy+q[1]*scale*pe2,DPR,DPR);}
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 2: particle globe ================= */
+var globeState=null;
+function drawGlobe(ctx,W,H,t,DPR){
+  if(!globeState){var P=[],r1=rng(21),N=620,i;
+    for(i=0;i<N;i++){var y=1-(i/(N-1))*2,rad=Math.sqrt(1-y*y),th=2.399963*i;
+      P.push({p:[Math.cos(th)*rad,y,Math.sin(th)*rad],
+        col:r1()<0.78?CYAN:r1()<0.9?GOLD:PURPLE,s:0.5+r1()});}
+    globeState=P;}
+  var cx=W*0.42,cy=H*0.5,scale=Math.min(W,H)*0.34;
+  glow(ctx,W,H,'rgba(120,190,255,0.16)');
+  ctx.globalCompositeOperation='lighter';
+  var ay=t*0.25,ax=0.35,i;
+  for(i=0;i<globeState.length;i++){var g=globeState[i];
+    var p=rot3(g.p,ax+Math.sin(t*0.1)*0.05,ay),pe=3.2/(3.2+p[2]);
+    var x=cx+p[0]*scale*pe,y=cy+p[1]*scale*pe;
+    var a=Math.max(0.06,0.75*pe-0.25)*g.s;
+    ctx.fillStyle=rgba(g.col,Math.min(a,0.9));
+    var sz=DPR*(pe>1?1.6:1.0);
+    ctx.fillRect(x,y,sz,sz);}
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 3: DNA helix ================= */
+function drawHelix(ctx,W,H,t,DPR){
+  var cx=W*0.42;
+  glow(ctx,W,H,'rgba(183,140,255,0.15)');
+  ctx.globalCompositeOperation='lighter';
+  var amp=W*0.14,k=6.5/H,sp=t*2.2,i;
+  for(var pass=0;pass<2;pass++){var off=pass*Math.PI;
+    ctx.beginPath();
+    for(i=0;i<=H;i+=4){var x=cx+Math.sin(i*k-sp+off)*amp;
+      i===0?ctx.moveTo(x,i):ctx.lineTo(x,i);}
+    ctx.strokeStyle=rgba(pass?PURPLE:CYAN,0.55);ctx.lineWidth=DPR*1.1;ctx.stroke();}
+  for(i=0;i<=H;i+=Math.max(18,H/26)){
+    var xa=cx+Math.sin(i*k-sp)*amp,xb=cx+Math.sin(i*k-sp+Math.PI)*amp;
+    var prox=1-Math.abs(xa-xb)/(2*amp);
+    ctx.strokeStyle=rgba(GOLD,0.12+0.25*(1-prox));ctx.lineWidth=DPR*0.7;
+    ctx.beginPath();ctx.moveTo(xa,i);ctx.lineTo(xb,i);ctx.stroke();}
+  for(i=0;i<=H;i+=Math.max(30,H/14)){
+    var x1=cx+Math.sin(i*k-sp)*amp,x2=cx+Math.sin(i*k-sp+Math.PI)*amp;
+    ctx.fillStyle=rgba(CYAN,0.9);ctx.fillRect(x1-DPR,i-DPR,DPR*2,DPR*2);
+    ctx.fillStyle=rgba(PURPLE,0.9);ctx.fillRect(x2-DPR,i-DPR,DPR*2,DPR*2);}
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 4: wave grid ================= */
+function drawWaveGrid(ctx,W,H,t,DPR){
+  var cx=W*0.44,cy=H*0.42,scale=Math.min(W,H)*0.30;
+  glow(ctx,W,H,'rgba(255,195,77,0.10)');
+  ctx.globalCompositeOperation='lighter';
+  var i,j;
+  for(j=-8;j<=8;j++){ctx.beginPath();
+    for(i=-20;i<=20;i++){var x=i/20*2.6,z=j/8*2.6;
+      var y=Math.sin(x*2.2+t*1.4)*0.16+Math.sin(z*1.8-t)*0.14;
+      var p=rot3([x,y,z+2.2],0.62,0),pe=4.6/(4.6+p[2]);
+      var sx=cx+p[0]*scale*pe,sy=cy+p[1]*scale*pe+H*0.12;
+      i===-20?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);}
+    ctx.strokeStyle=rgba(j%4===0?GOLD:CYAN,j%4===0?0.30:0.16);ctx.lineWidth=DPR*0.7;ctx.stroke();}
+  for(i=-20;i<=20;i+=2){ctx.beginPath();
+    for(j=-8;j<=8;j++){var x2=i/20*2.6,z2=j/8*2.6;
+      var y2=Math.sin(x2*2.2+t*1.4)*0.16+Math.sin(z2*1.8-t)*0.14;
+      var p2=rot3([x2,y2,z2+2.2],0.62,0),pe2=4.6/(4.6+p2[2]);
+      var sx2=cx+p2[0]*scale*pe2,sy2=cy+p2[1]*scale*pe2+H*0.12;
+      j===-8?ctx.moveTo(sx2,sy2):ctx.lineTo(sx2,sy2);}
+    ctx.strokeStyle=rgba(PURPLE,0.12);ctx.lineWidth=DPR*0.6;ctx.stroke();}
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 5: neural constellation ================= */
+var neuralState=null;
+function drawNeural(ctx,W,H,t,DPR){
+  if(!neuralState){var N=[],r1=rng(42),i;
+    for(i=0;i<54;i++)N.push({x:r1()*2-1,y:r1()*2-1,z:r1()*2-1,
+      col:r1()<0.7?CYAN:r1()<0.88?GOLD:PURPLE,ph:r1()*TAU});
+    neuralState=N;}
+  var cx=W*0.42,cy=H*0.5,scale=Math.min(W,H)*0.36;
+  glow(ctx,W,H,'rgba(111,242,255,0.16)');
+  ctx.globalCompositeOperation='lighter';
+  var ay=t*0.18,i,j,pts=[];
+  for(i=0;i<neuralState.length;i++){var n=neuralState[i];
+    var p=rot3([n.x,n.y+Math.sin(t*0.7+n.ph)*0.06,n.z],0.3,ay),pe=3.4/(3.4+p[2]);
+    pts.push({x:cx+p[0]*scale*pe,y:cy+p[1]*scale*pe,pe:pe,col:n.col});}
+  for(i=0;i<pts.length;i++)for(j=i+1;j<pts.length;j++){
+    var dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d2=dx*dx+dy*dy,maxd=W*0.14;
+    if(d2<maxd*maxd){var a=(1-Math.sqrt(d2)/maxd)*0.4;
+      ctx.strokeStyle=rgba(CYAN,a);ctx.lineWidth=DPR*0.5;ctx.beginPath();
+      ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);ctx.stroke();}}
+  for(i=0;i<pts.length;i++){var pu=0.5+0.5*Math.sin(t*2+i);
+    ctx.fillStyle=rgba(pts[i].col,Math.min(0.95,0.5+0.55*pu*pts[i].pe-0.15));
+    ctx.fillRect(pts[i].x-DPR*1.2,pts[i].y-DPR*1.2,DPR*2.4,DPR*2.4);}
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 6: aurora bands ================= */
+function drawAurora(ctx,W,H,t,DPR){
+  var cx=W*0.42,cy=H*0.5,span=W*0.92;
+  glow(ctx,W,H,'rgba(183,140,255,0.10)');
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineCap='round';
+  var bands=[[CYAN,0.0,1.00,0.55],[PURPLE,1.9,0.72,0.45],[GOLD,3.6,0.48,0.35],[PINK,5.1,0.30,0.30]];
+  for(var b=0;b<bands.length;b++){
+    var col=bands[b][0],ph=bands[b][1],spread=bands[b][2],base=bands[b][3];
+    for(var pass=0;pass<3;pass++){
+      ctx.beginPath();
+      for(var i=0;i<=80;i++){var u=i/80;
+        var x=cx-span/2+u*span;
+        var y=cy+(b-1.5)*H*0.055
+          +Math.sin(u*3.1+t*0.55+ph)*H*0.075*spread
+          +Math.sin(u*7.3-t*0.38+ph*2.0)*H*0.028*spread;
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+      ctx.strokeStyle=rgba(col,base*(pass===0?0.10:pass===1?0.28:0.85));
+      ctx.lineWidth=DPR*(pass===0?26:pass===1?9:1.6);
+      ctx.stroke();}
+  }
+  for(var s=0;s<26;s++){
+    var u=(s/26+t*0.02+s*0.137)%1;
+    var px=cx-span/2+u*span;
+    var py=cy+Math.sin(u*3.1+t*0.55)*H*0.075+Math.sin(u*7.3-t*0.38)*H*0.028;
+    var tw=0.25+0.75*Math.abs(Math.sin(t*1.7+s*2.3));
+    ctx.fillStyle=rgba(ICE,0.5*tw);
+    ctx.fillRect(px,py+H*(s%3-1)*0.01,DPR*1.4,DPR*1.4);}
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 7: warp tunnel ================= */
+var warpState=null;
+function drawWarp(ctx,W,H,t,DPR){
+  if(!warpState){var P=[],r1=rng(99),i;
+    for(i=0;i<220;i++)P.push({a:r1()*TAU,r:0.25+r1()*0.9,z:r1()});
+    warpState=P;}
+  var cx=W*0.42,cy=H*0.5,scale=Math.min(W,H)*0.42;
+  glow(ctx,W,H,'rgba(150,220,255,0.16)');
+  ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<warpState.length;i++){var s=warpState[i];
+    s.z-=0.006+s.r*0.004;if(s.z<0.02){s.z=1;s.a=Math.random()*TAU;}
+    var z1=s.z,z2=s.z+0.08;
+    var x1=cx+Math.cos(s.a)*s.r*scale/z1,y1=cy+Math.sin(s.a)*s.r*scale*0.8/z1;
+    var x2=cx+Math.cos(s.a)*s.r*scale/z2,y2=cy+Math.sin(s.a)*s.r*scale*0.8/z2;
+    var a=Math.min(0.8,(1-z1)*0.9);
+    ctx.strokeStyle=rgba(i%9===0?GOLD:i%5===0?PURPLE:ICE,a);
+    ctx.lineWidth=DPR*(1-z1)*1.4+0.3;ctx.beginPath();
+    ctx.moveTo(x2,y2);ctx.lineTo(x1,y1);ctx.stroke();}
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 8: gyroscope rings ================= */
+function drawGyro(ctx,W,H,t,DPR){
+  var cx=W*0.42,cy=H*0.5,scale=Math.min(W,H)*0.32;
+  glow(ctx,W,H,'rgba(255,195,77,0.14)');
+  ctx.globalCompositeOperation='lighter';
+  var rings=[{ax:0.2,sp:0.5,col:CYAN},{ax:0.9,sp:-0.35,col:GOLD},
+             {ax:1.4,sp:0.26,col:PURPLE},{ax:0.55,sp:-0.62,col:ICE}];
+  for(var ri=0;ri<rings.length;ri++){var rg=rings[ri];
+    ctx.beginPath();
+    for(var i=0;i<=80;i++){var u=i/80*TAU;
+      var p=rot3([Math.cos(u),Math.sin(u),0],rg.ax+Math.sin(t*0.2+ri)*0.1,t*rg.sp);
+      var pe=3.4/(3.4+p[2]);
+      i===0?ctx.moveTo(cx+p[0]*scale*pe,cy+p[1]*scale*pe):ctx.lineTo(cx+p[0]*scale*pe,cy+p[1]*scale*pe);}
+    ctx.strokeStyle=rgba(rg.col,0.5);ctx.lineWidth=DPR*0.9;ctx.stroke();
+    var hb=rot3([Math.cos(t*rg.sp*3),Math.sin(t*rg.sp*3),0],rg.ax,t*rg.sp);
+    var hp=3.4/(3.4+hb[2]);
+    ctx.fillStyle=rgba(rg.col,0.95);
+    ctx.fillRect(cx+hb[0]*scale*hp-DPR*1.2,cy+hb[1]*scale*hp-DPR*1.2,DPR*2.4,DPR*2.4);}
+  ctx.fillStyle=rgba(ICE,0.9);ctx.fillRect(cx-DPR,cy-DPR,DPR*2,DPR*2);
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 9: plasma core ================= */
+function drawPlasma(ctx,W,H,t,DPR){
+  var cx=W*0.42,cy=H*0.5,scale=Math.min(W,H)*0.34;
+  var pulse=1+0.10*Math.sin(t*2.2);
+  var g=ctx.createRadialGradient(cx,cy,1,cx,cy,scale*0.62*pulse);
+  g.addColorStop(0,'rgba(255,255,255,0.85)');g.addColorStop(0.18,'rgba(190,235,250,0.55)');
+  g.addColorStop(0.45,'rgba(111,242,255,0.20)');g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineCap='round';
+  var fils=[[CYAN,0.0,1.1],[GOLD,1.3,0.8],[PURPLE,2.4,1.4],[CYAN,3.5,0.9],[PINK,4.6,1.2],[GOLD,5.5,0.7]];
+  for(var f=0;f<fils.length;f++){
+    var col=fils[f][0],ph=fils[f][1],wf=fils[f][2];
+    var a0=t*0.6*(f%2?1:-1)+ph;
+    var x0=cx+Math.cos(a0)*scale*0.30*pulse,y0=cy+Math.sin(a0)*scale*0.30*pulse;
+    var x1=cx+Math.cos(a0+0.9)*scale*(0.95+0.25*Math.sin(t*wf+ph)),
+        y1=cy+Math.sin(a0+0.9)*scale*(0.95+0.25*Math.sin(t*wf+ph));
+    var mx=(x0+x1)/2+Math.sin(t*wf*1.7+ph)*scale*0.34,
+        my=(y0+y1)/2+Math.cos(t*wf*1.3+ph*2)*scale*0.34;
+    for(var pass=0;pass<2;pass++){
+      ctx.beginPath();ctx.moveTo(x0,y0);ctx.quadraticCurveTo(mx,my,x1,y1);
+      ctx.strokeStyle=rgba(col,pass?0.75:0.16);
+      ctx.lineWidth=DPR*(pass?1.1:5);ctx.stroke();}
+    ctx.fillStyle=rgba(ICE,0.9);
+    ctx.fillRect(x1-DPR,y1-DPR,DPR*2,DPR*2);}
+  ctx.beginPath();ctx.arc(cx,cy,scale*0.42*pulse,0,TAU);
+  ctx.strokeStyle=rgba(ICE,0.35);ctx.lineWidth=DPR*0.8;ctx.stroke();
+  ctx.beginPath();ctx.arc(cx,cy,scale*0.78,0,TAU);
+  ctx.strokeStyle=rgba(PURPLE,0.18);ctx.lineWidth=DPR*0.6;ctx.stroke();
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ================= design 10: crystal lattice ================= */
+var latticeState=null;
+function drawLattice(ctx,W,H,t,DPR){
+  if(!latticeState){var N=[],E=[],i,j,k;
+    for(i=0;i<4;i++)for(j=0;j<4;j++)for(k=0;k<4;k++){
+      N.push([(i-1.5)/1.5,(j-1.5)/1.5,(k-1.5)/1.5,k]);
+      var id=(i*4+j)*4+k;
+      if(i<3)E.push([id,id+16]);if(j<3)E.push([id,id+4]);if(k<3)E.push([id,id+1]);}
+    latticeState={N:N,E:E};}
+  var cx=W*0.42,cy=H*0.5,scale=Math.min(W,H)*0.42;
+  glow(ctx,W,H,'rgba(111,242,255,0.08)');
+  ctx.globalCompositeOperation='lighter';
+  var ax=t*0.34,ay=t*0.23,proj=[],i,e;
+  for(i=0;i<latticeState.N.length;i++){
+    var p=rot3(latticeState.N[i],ax,ay);
+    var depth=1/(p[2]*0.45+2.6);
+    proj.push([cx+p[0]*scale*depth*2.2,cy+p[1]*scale*depth*2.2,depth,p[3]]);}
+  for(i=0;i<latticeState.E.length;i++){e=latticeState.E[i];
+    var a=proj[e[0]],b=proj[e[1]],d=(a[2]+b[2])/2;
+    ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);
+    ctx.strokeStyle=rgba(CYAN,Math.min(0.6,d*0.8));ctx.lineWidth=DPR*0.8;ctx.stroke();}
+  for(i=0;i<proj.length;i++){var q=proj[i];
+    var col=q[3]===0?GOLD:q[3]===3?PURPLE:q[3]===1?CYAN:ICE;
+    var tw=0.45+0.55*Math.abs(Math.sin(t*1.5+i*0.61));
+    var sz=DPR*(1.4+q[2]*3.0)*Math.min(1.5,tw+0.5);
+    ctx.fillStyle=rgba(col,Math.min(0.95,q[2]*2.2*tw+0.18));
+    ctx.fillRect(q[0]-sz/2,q[1]-sz/2,sz,sz);}
+  ctx.globalCompositeOperation='source-over';
+}
+
+var DESIGNS=[
+  {name:'FILAMENT TORUS',draw:drawTorus},
+  {name:'PARTICLE GLOBE',draw:drawGlobe},
+  {name:'HELIX STREAM',draw:drawHelix},
+  {name:'WAVE GRID',draw:drawWaveGrid},
+  {name:'NEURAL CONSTELLATION',draw:drawNeural},
+  {name:'AURORA BANDS',draw:drawAurora},
+  {name:'WARP TUNNEL',draw:drawWarp},
+  {name:'GYROSCOPE RINGS',draw:drawGyro},
+  {name:'PLASMA CORE',draw:drawPlasma},
+  {name:'CRYSTAL LATTICE',draw:drawLattice}
+];
+var current=0;
+
+/* ================= play mode: finger drag moves the background graphics ================= */
+function playStep(){
+  if(PA.on&&!PA.down){PA.ay+=PA.vy;PA.ax+=PA.vx;PA.vx*=0.94;PA.vy*=0.94;if(Math.abs(PA.vx)<1e-4)PA.vx=0;if(Math.abs(PA.vy)<1e-4)PA.vy=0;}
+  if(PA.ax>1.3)PA.ax=1.3;if(PA.ax<-1.3)PA.ax=-1.3;
+}
+function playTrail(){
+  var T=PA.trail;if(!T.length)return;
+  tx.save();tx.globalCompositeOperation='lighter';
+  for(var i=T.length-1;i>=0;i--){var p=T[i];p.a-=0.045;
+    if(p.a<=0){T.splice(i,1);continue;}
+    var r=(18+p.a*22)*DPR,g=tx.createRadialGradient(p.x,p.y,0,p.x,p.y,r);
+    g.addColorStop(0,'rgba(150,240,255,'+(p.a*0.55)+')');g.addColorStop(1,'rgba(150,240,255,0)');
+    tx.fillStyle=g;tx.beginPath();tx.arc(p.x,p.y,r,0,6.2832);tx.fill();}
+  tx.restore();
+}
+(function(){
+  var dash=document.getElementById('dash');PA.on=true;
+  var lastTap=0;
+  function pos(e){var r=tc.getBoundingClientRect();return {x:(e.clientX-r.left)*DPR,y:(e.clientY-r.top)*DPR};}
+  dash.addEventListener('pointerdown',function(e){if(document.body.classList.contains('pk'))return;PA.down=true;PA.lx=e.clientX;PA.ly=e.clientY;PA.vx=PA.vy=0;
+    try{dash.setPointerCapture(e.pointerId);}catch(x){}
+    var n=Date.now();if(n-lastTap<320){PA.ax=0;PA.ay=0;PA.vx=PA.vy=0;}lastTap=n;
+    var p=pos(e);PA.trail.push({x:p.x,y:p.y,a:1});});
+  dash.addEventListener('pointermove',function(e){if(!PA.down)return;
+    var dx=e.clientX-PA.lx,dy=e.clientY-PA.ly;PA.lx=e.clientX;PA.ly=e.clientY;
+    PA.ay+=dx*0.012;PA.ax+=dy*0.012;PA.vy=dx*0.0035;PA.vx=dy*0.0035;
+    var p=pos(e);if(PA.trail.length<28)PA.trail.push({x:p.x,y:p.y,a:1});});
+  function up(e){PA.down=false;}
+  dash.addEventListener('pointerup',up);dash.addEventListener('pointercancel',up);
+  document.addEventListener('visibilitychange',function(){if(document.hidden){PA.down=false;PA.vx=PA.vy=0;}});
+  window.__play={state:PA};
+})();
+
+/* ================= hero canvas ================= */
+var tc=document.getElementById('hero'),tx=tc.getContext('2d');
+var W=0,H=0,DPR=1;
+function sizeHero(){DPR=fit(tc);W=tc.width;H=tc.height;}
+sizeHero();addEventListener('resize',sizeHero);
+var t0=performance.now();
+function frame(now){
+  var t=(now-t0)/1000;
+  tx.clearRect(0,0,W,H);
+  playStep();
+  var par=PA.on||Math.abs(PA.ay)>0.002||Math.abs(PA.ax)>0.002;
+  if(par){tx.save();var nm=DESIGNS[current].name;
+    if(nm==='AURORA BANDS'||nm==='WARP TUNNEL'||nm==='PLASMA CORE'){tx.translate(PA.ay*W*0.06,PA.ax*H*0.06);}}   /* these designs have no 3D rotation: shift them instead */
+  PA.apply=true;
+  DESIGNS[current].draw(tx,W,H,t,DPR);
+  PA.apply=false;
+  if(par)tx.restore();
+  playTrail();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ================= small panels ================= */
+function mini(id,fn){var c=document.getElementById(id),x=c.getContext('2d');
+  return function(){fit(c);fn(x,c.width,c.height);};}
+
+var drawWave=mini('cv-wave',function(x,w,h){
+  x.clearRect(0,0,w,h);x.strokeStyle='rgba(111,242,255,.85)';x.lineWidth=1.2;
+  x.beginPath();
+  for(var i=0;i<=w;i+=3){var y=h*0.5+((i/9+Date.now()/180)%2<1?-1:1)*h*0.28*Math.sin(i/20+Date.now()/400);
+    i===0?x.moveTo(i,y):x.lineTo(i,y);}x.stroke();
+});
+var drawQueue=mini('cv-queue',function(x,w,h){
+  x.clearRect(0,0,w,h);
+  [['rgba(111,242,255,.8)',0],['rgba(255,111,216,.7)',2.1]].forEach(function(cc){
+    x.strokeStyle=cc[0];x.beginPath();
+    for(var i=0;i<=w;i+=2){var y=h*0.5+Math.sin(i/11+Date.now()/300+cc[1])*h*0.3;
+      i===0?x.moveTo(i,y):x.lineTo(i,y);}x.stroke();});
+});
+var drawSplit=mini('cv-split',function(x,w,h){
+  x.clearRect(0,0,w,h);var n=12,bw=w/n;
+  for(var i=0;i<n;i++){var v=(Math.sin(i*1.7+Date.now()/500)+1)/2;
+    var bh=h*(0.15+v*0.8);
+    x.fillStyle=i/n<0.6?'rgba(255,160,'+Math.floor(60+v*60)+',.9)':'rgba(183,140,255,.9)';
+    x.fillRect(i*bw+1,h-bh,bw-2,bh);}
+});
+var stripC=document.getElementById('strip');
+function drawStrip(){var x=stripC.getContext('2d'),w=stripC.width,h=stripC.height;
+  x.clearRect(0,0,w,h);
+  [['rgba(111,242,255,.75)',0,0.5],['rgba(255,195,77,.55)',1.3,0.3],['rgba(183,140,255,.45)',2.6,0.2]].forEach(function(cc){
+    x.strokeStyle=cc[0];x.lineWidth=1;x.beginPath();
+    for(var i=0;i<=w;i+=3){var y=h*0.5+Math.sin(i/23+Date.now()/350+cc[1])*h*0.3*cc[2]*2
+        +Math.sin(i/7+Date.now()/160)*h*0.08;
+      i===0?x.moveTo(i,y):x.lineTo(i,y);}x.stroke();});
+}
+setInterval(function(){drawWave();drawQueue();drawSplit();fit(stripC);drawStrip();},140);
+
+/* telemetry + cycle text */
+var cycRows=document.querySelectorAll('#cyc div'),cycI=0;
+setInterval(function(){
+  cycI=(cycI+1)%cycRows.length;
+  cycRows.forEach(function(d,i){d.className=i===cycI?'on':'';});
+  var el=document.getElementById.bind(document);
+  el('t-yp').textContent=(120+Math.random()*40).toFixed(1)+'° / '+(18+Math.random()*8).toFixed(1)+'°';
+  el('t-n').textContent=Math.floor(4000+Math.random()*900);
+  el('t-e').textContent=Math.floor(12000+Math.random()*3000);
+  el('t-s').textContent='0x'+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0');
+  el('t-c').textContent=Math.floor(1+Math.random()*8)+' / '+(40+Math.floor(Math.random()*30))+'ms';
+  el('chip-spin').textContent=(235+Math.random()*10).toFixed(1)+'°';
+},600);
+
+/* ================= graphics picker ================= */
+var picker=document.getElementById('picker'),grid=document.getElementById('grid');
+var chipGfx=document.getElementById('chip-gfx');
+var previewTimers=[];
+DESIGNS.forEach(function(d,idx){
+  var card=document.createElement('div');card.className='card'+(idx===0?' active':'');
+  var cv=document.createElement('canvas');
+  var nm=document.createElement('div');nm.className='nm';nm.textContent=(idx+1)+'. '+d.name;
+  card.appendChild(cv);card.appendChild(nm);grid.appendChild(card);
+  card.addEventListener('click',function(){selectDesign(idx);});
+  card._cv=cv;
+});
+function startPreviews(){
+  stopPreviews();
+  var cards=grid.children;
+  for(var i=0;i<cards.length;i++)(function(idx){
+    var cv=cards[idx]._cv,cx2=cv.getContext('2d'),steps=0;
+    fit(cv);
+    var timer=setInterval(function(){
+      steps++;fit(cv);cx2.clearRect(0,0,cv.width,cv.height);
+      DESIGNS[idx].draw(cx2,cv.width,cv.height,steps*0.28,Math.min(devicePixelRatio||1,2));
+    },280);
+    previewTimers.push(timer);
+  })(i);
+}
+function stopPreviews(){previewTimers.forEach(clearInterval);previewTimers=[];}
+function openPicker(){document.body.classList.add('pk');picker.classList.add('open');startPreviews();}
+function selectDesign(idx){
+  current=idx;
+  chipGfx.textContent=DESIGNS[idx].name;
+  for(var i=0;i<grid.children.length;i++)
+    grid.children[i].classList.toggle('active',i===idx);
+  document.body.classList.remove('pk');picker.classList.remove('open');stopPreviews();
+}
+
+/* ================= chat ================= */
+var log=document.getElementById('log'),inp=document.getElementById('inp'),btn=document.getElementById('send');
+function bubble(cls,text){var d=document.createElement('div');d.className='msg '+cls;d.textContent=text;
+  log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+function copyText(t){
+  if(window.AndroidClipboard&&window.AndroidClipboard.copy){
+    try{window.AndroidClipboard.copy(t);return;}catch(e){}}
+  function legacy(){try{var ta=document.createElement('textarea');ta.value=t;
+    ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);
+    ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).catch(legacy);
+  }else legacy();
+}
+/* Local schedule parser. parseSchedule(text, now) -> {kind:'none'} | {kind:'error', msg} | {kind:'ok', what:'alarm'|'reminder', title, at:Date, hasDay} */
+var RA_DAYS=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+function parseSchedule(text, now){
+  var s=text.trim(), low=s.toLowerCase();
+  var isRem=/\bremind(er)?\b/.test(low), isAl=/\b(alarm|wake me)\b/.test(low);
+  if(!isRem&&!isAl) return {kind:'none'};
+  var what=isAl&&!isRem?'alarm':'reminder';
+  var rest=' '+low+' ', title='';
+  var at=null, hasDay=false, m;
+  // relative: in 10 minutes / in 2 hours / in an hour
+  m=rest.match(/\bin\s+(a|an|\d+)\s*(minutes?|mins?|hours?|hrs?)\b/);
+  if(m){
+    var n=(m[1]==='a'||m[1]==='an')?1:parseInt(m[1],10);
+    if(!(n>0)||n>1440) return {kind:'error',msg:'I can only set times up to 24 hours ahead with "in ...". Give a clock time instead.'};
+    var ms=/^h/.test(m[2])?n*3600000:n*60000;
+    at=new Date(now.getTime()+ms); at.setSeconds(0,0); if(at<=now) at=new Date(at.getTime()+60000);
+    hasDay=true; rest=rest.replace(m[0],' ');
+  } else {
+    // day words
+    var dayOff=null, dm;
+    if(/\btomorrow\b/.test(rest)){dayOff=1;rest=rest.replace(/\btomorrow\b/,' ');}
+    else if(/\btoday\b|\btonight\b/.test(rest)){dayOff=0;rest=rest.replace(/\btoday\b|\btonight\b/,' ');}
+    else if((dm=rest.match(/\b(?:on\s+|next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/))){
+      var want=RA_DAYS.indexOf(dm[1]); dayOff=(want-now.getDay()+7)%7; rest=rest.replace(dm[0],' ');
+      hasDay='weekday';
+    }
+    // clock time
+    var h=null,mi=0,ap=null;
+    if((m=rest.match(/\b(?:at\s+)?(noon|midnight)\b/))){h=m[1]==='noon'?12:0;ap='x';rest=rest.replace(m[0],' ');}
+    else if((m=rest.match(/\b(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/)) ){
+      h=parseInt(m[1],10);mi=m[2]?parseInt(m[2],10):0;ap=m[3][0];rest=rest.replace(m[0],' ');
+      if(h<1||h>12||mi>59) return {kind:'error',msg:'I could not read that time. Try "at 5:30 pm".'};
+      if(ap==='p'&&h<12)h+=12; if(ap==='a'&&h===12)h=0;
+    } else if((m=rest.match(/\b(?:at\s+)?(\d{1,2}):(\d{2})\b/))){
+      h=parseInt(m[1],10);mi=parseInt(m[2],10);rest=rest.replace(m[0],' ');
+      if(h>23||mi>59) return {kind:'error',msg:'I could not read that time. Try "at 17:30" or "at 5:30 pm".'};
+      if(h<=12&&!/^0/.test(m[1])&&h!==0) return {kind:'error',msg:'Is that '+h+':'+(mi<10?'0':'')+mi+' AM or PM? Say it again with am or pm (or use 24-hour time like 17:30).'};
+    } else if((m=rest.match(/\bat\s+(\d{1,2})\b/))){
+      return {kind:'error',msg:'Is that '+m[1]+' AM or PM? Say it again with am or pm.'};
+    } else {
+      return {kind:'error',msg:'I could not find a time. Try "remind me to call mom at 5 pm" or "alarm at 6:30 am tomorrow".'};
+    }
+    at=new Date(now.getFullYear(),now.getMonth(),now.getDate()+(dayOff||0),h,mi,0,0);
+    if(at.getHours()!==h||at.getMinutes()!==mi) return {kind:'error',msg:'That is not a valid local time (daylight saving gap?). Pick another time.'};
+    if(dayOff===null){
+      if(at<=now) return {kind:'error',msg:'That time has already passed today. Say "tomorrow" or a day name.'};
+    } else if(dayOff===0&&at<=now) return {kind:'error',msg:'That time has already passed today.'};
+    else if(hasDay==='weekday'&&at<=now) at=new Date(at.getTime()+7*86400000);
+    hasDay=dayOff!==null;
+  }
+  // title
+  var t=rest;
+  t=t.replace(/\b(please|set|an?|the|my|me|alarm|wake|reminder|remind|up|to|for|at|on|that)\b/g,function(w){return w==='to'?' ':' ';});
+  var tm=low.match(/\bremind(?:er)?(?:\s+me)?\s+(?:to|about|that)\s+(.+)$/);
+  if(tm){ var x=' '+tm[1]+' '; x=x.replace(/\s+(at|in|on|tomorrow|today|tonight)\b.*$/,' '); title=x.trim(); }
+  if(!title){ var lm=low.match(/\b(?:called|named|label(?:ed)?|for)\s+(.+?)(?:\s+(?:at|in|tomorrow|today|tonight|on)\b|$)/); if(lm) title=lm[1].trim(); }
+  if(!title&&what==='reminder'){
+    var am=low.match(/\bremind(?:er)?(?:\s+me)?\s+(?:at|in|tomorrow|today|tonight|on)\b.*?\b(?:to|about|that)\s+(.+)$/);
+    if(am) title=am[1].replace(/\s+(at|tomorrow|today|tonight)\b.*$/,'').trim();
+  }
+  if(what==='reminder'&&!title) return {kind:'error',msg:'What should I remind you about? Example: "remind me to call mom at 5 pm".'};
+  return {kind:'ok',what:what,title:title,at:at,hasDay:hasDay};
+}
+
+
+var pending=null;
+function fmt(d){var D=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var h=d.getHours(),ap=h>=12?'PM':'AM';h=h%12||12;var mi=d.getMinutes();
+  return D[d.getDay()]+' '+d.getDate()+' '+M[d.getMonth()]+' '+d.getFullYear()+', '+h+':'+(mi<10?'0':'')+mi+' '+ap;}
+function schedOK(){return window.AndroidSched&&window.AndroidSched.add;}
+function listItems(){try{return JSON.parse(window.AndroidSched.list());}catch(e){return [];}}
+function sortedItems(){var a=listItems();a.sort(function(x,y){return x.at-y.at;});return a;}
+var ERR={notifications_off:'Notifications are off for Roshan AI, so it could not be scheduled. Allow notifications (a prompt or the settings screen opens), then send the command again.',
+  exact_alarm_off:'Android needs the "Alarms & reminders" permission for Roshan AI. The settings screen opens. Allow it, then send the command again.',
+  in_the_past:'That time is in the past, so nothing was scheduled.',invalid_time:'That is not a valid local time, so nothing was scheduled.',
+  os_refused:'Android refused the schedule, so nothing was scheduled.',save_failed:'Could not save the schedule, so nothing was scheduled.'};
+function doAdd(p,replaceId){
+  var d=p.at,r;
+  try{r=JSON.parse(window.AndroidSched.add(p.what,p.title||'',d.getFullYear(),d.getMonth()+1,d.getDate(),d.getHours(),d.getMinutes()));}
+  catch(e){r={ok:false,error:'error'};}
+  if(!r.ok){bubble('ai',ERR[r.error]||('Nothing was scheduled ('+r.error+').'));return;}
+  if(replaceId)window.AndroidSched.cancel(replaceId);
+  bubble('ai','Scheduled: '+p.what+(p.title?' "'+p.title+'"':'')+' for '+fmt(d)+'. The phone accepted it. Say "list" to see or "cancel N" to remove.');
+}
+
+var HO_ERR={no_app:'No app on this phone can handle that.',os_refused:'Android refused to open it.',bad_number:'That does not look like a phone number.',bad_email:'That does not look like an email address.',bad_url:'Only http and https links can be opened.',empty:'Nothing to open. Add some text after the command.',not_found:'That app is no longer on the phone.'};
+function hoFail(r){return (HO_ERR[r.error]||('Could not open it ('+r.error+').'));}
+function appBubble(text,items,extra){
+  var b=bubble('ai',text);
+  items.forEach(function(it){var x=document.createElement('button');x.type='button';x.className='rty';x.textContent=it.label.toUpperCase();
+    x.style.display='block';x.style.marginTop='6px';
+    x.addEventListener('click',function(){var r=JSON.parse(window.AndroidApps.open(it.pkg));
+      bubble('ai',r.ok?'Asked Android to open '+it.label+'.':hoFail(r));if(r.ok&&extra)partialNote(it.label,extra);});
+    b.appendChild(x);});
+  return b;}
+function partialNote(app,extra){
+  var b=bubble('ai note','I only opened '+app+'. I did not do "'+extra+'": Roshan AI has no supported way to pass requests into '+app+'. You can copy that request and paste it there yourself.');
+  var x=document.createElement('button');x.type='button';x.className='rty';x.textContent='COPY REQUEST TEXT';x.style.display='block';x.style.marginTop='6px';
+  x.addEventListener('click',function(){if(window.AndroidClipboard){window.AndroidClipboard.copy(extra);x.textContent='COPIED';}});
+  b.appendChild(x);}
+function openApp(name,extra){
+  var o=JSON.parse(window.AndroidApps.find(name));
+  if(!o.items.length){bubble('ai','I found no app named "'+name+'" among the '+o.seen+' apps with a launcher icon on this phone. Apps without an icon cannot be opened from here.'+(extra?' I also did not do "'+extra+'".':''));return;}
+  if(o.exact){var r=JSON.parse(window.AndroidApps.open(o.items[0].pkg));
+    bubble('ai',r.ok?'Asked Android to open '+o.items[0].label+'.':hoFail(r));if(r.ok&&extra)partialNote(o.items[0].label,extra);return;}
+  appBubble(o.items.length===1?'Did you mean this app? Tap to open it.':'More than one app could match "'+name+'". Tap the one you want.',o.items,extra);
+  if(extra)bubble('ai note','Heads up: I can only open the app. I will not do "'+extra+'" inside it.');
+  if(o.total>o.items.length)bubble('ai note','Showing '+o.items.length+' of '+o.total+'. Use a longer name to narrow it.');}
+function ho(kind,a,b,okmsg){var r=JSON.parse(window.AndroidApps.handoff(kind,a,b||''));
+  if(!r.ok){bubble('ai',hoFail(r));return;}
+  bubble('ai',typeof okmsg==='function'?okmsg(r):okmsg);}
+var PH='\\+?[\\d()\\-]{3,20}';
+function appCmd(t){
+  var s=t.trim().replace(/[.!?]+$/,''),m;
+  var re={yt1:/^(?:open\s+)?youtube\s+(?:and\s+)?(?:search|find|play)(?:\s+for)?\s+(.+)$/i,yt2:/^(?:search|find|play)\s+(.+?)\s+(?:on|in)\s+youtube$/i,yt3:/^search\s+youtube\s+for\s+(.+)$/i,
+    web:/^(?:open|go to|visit)\s+((?:https?:\/\/)?(?:[\w-]+\.)+[a-z]{2,}(?:\/\S*)?)$/i,
+    dial:/^(?:call|dial)\s+(\+?[\d][\d ()\-]{2,19})$/i,sms:new RegExp('^(?:text|sms)\\s+('+PH+')\\s*:?\\s+(.+)$','i'),
+    mail:/^email\s+([^\s@]+@[^\s@]+\.[^\s@]+)\s*:?\s*(.*)$/i,
+    map:/^(?:map|maps|navigate to|directions to|take me to|show on map)\s+(.+)$/i,sharef:/^share\s+(?:the\s+|my\s+|this\s+)?(?:file|attachment|attached file|image|photo|pdf|document)$/i,share:/^share\s+(.+)$/i,
+    cal:/^(?:add|create|new)\s+(?:a\s+)?(?:calendar\s+)?event\s*(?:called|named|:)?\s*(.+)$/i,
+    app:/^(?:open|launch|start)\s+(?:the\s+)?(.+?)(?:\s+app)?$/i};
+  var hit=null;for(var k in re){m=s.match(re[k]);if(m){hit=k;break;}}
+  if(!hit)return false;
+  if(!window.AndroidApps){bubble('ai','Opening apps is not available in this build.');return true;}
+  var done=' You finish it there.';
+  if(hit==='yt1'||hit==='yt2'||hit==='yt3'){ho('youtube',m[1].trim(),'',function(r){return r.via==='youtube_app'?'Asked YouTube to search for "'+m[1].trim()+'". It opens on its own screen. If it shows the home screen instead of results, the search request was ignored by that YouTube version.':'The YouTube app did not take the search, so I opened the YouTube search page for "'+m[1].trim()+'" in a browser or YouTube link handler.';});}
+  else if(hit==='web'){var u=/^https?:/i.test(m[1])?m[1]:'https://'+m[1];ho('web',u,'','Asked Android to open '+u+'.');}
+  else if(hit==='dial'){ho('dial',m[1],'','Opened the dialer with '+m[1]+'. Nothing is dialed until you press call.');}
+  else if(hit==='sms'){ho('sms',m[1],m[2],'Opened your messaging app with a draft to '+m[1]+'. Nothing is sent until you press send.');}
+  else if(hit==='mail'){ho('email',m[1],m[2],'Opened your email app with a draft to '+m[1]+'. Nothing is sent until you press send.');}
+  else if(hit==='map'){ho('map',m[1],'','Asked your maps app to show "'+m[1]+'".');}
+  else if(hit==='sharef'){if(!window.AndroidShare){bubble('ai','Sharing a file is not available in this build.');return true;}
+    var r=JSON.parse(window.AndroidShare.shareFile());
+    if(!r.ok){bubble('ai',r.error==='none'?'There is no file in this chat to share. Attach one with FILE first.':'Could not prepare the file ('+r.error+'). Nothing was shared.');return true;}
+    bubble('ai','Opened the Android share sheet with "'+r.name+'" (file '+r.source+'). Pick where to send it. The app you choose may open a draft first, and nothing is sent by this step. A temporary copy sits in this app\'s private cache and is deleted on NEW CHAT, when you remove the attachment, when you share another file, and when the app restarts. The app you choose keeps its own copy. The file also stays in this chat and is still sent to Gemini with follow-up messages until NEW CHAT.');}
+  else if(hit==='share'){ho('share',m[1],'','Opened the Android share sheet with your text. Pick where to send it.');}
+  else if(hit==='cal'){ho('calendar',m[1],'','Opened a new calendar event titled "'+m[1]+'". Set the time and press save there. Nothing is saved until you do.');}
+  else{var parts=m[1].trim().split(/\s+(?:and|then|&|to|for|with|so)\s+|\s*[,;]\s*/i);var nm=parts.shift().trim(),ex=parts.join(' ').trim();openApp(nm||m[1].trim(),nm?ex:'');}
+  return true;}
+function handleCommand(t){
+  var low=t.toLowerCase().replace(/[.!?]+$/,'').trim();
+  if(pending){
+    if(/^(yes|y|ok|okay|confirm|yep|yeah|do it)$/.test(low)){var p=pending;pending=null;
+      if(!schedOK()){bubble('ai','Alarms are not available in this build.');return true;}
+      doAdd(p.parsed,p.replaceId);return true;}
+    if(/^(no|n|cancel|nope|stop)$/.test(low)){pending=null;bubble('ai','Okay, nothing scheduled.');return true;}
+    pending=null; // any other text drops the pending preview
+  }
+  if(/^(list|alarms|reminders|list alarms|list reminders|show alarms|show reminders|my alarms|my reminders)$/.test(low)){
+    if(!schedOK()){bubble('ai','Alarms are not available in this build.');return true;}
+    var a=sortedItems();
+    if(!a.length){bubble('ai','No alarms or reminders scheduled.');return true;}
+    bubble('ai',a.map(function(x,i){return (i+1)+'. '+x.kind+(x.title?' "'+x.title+'"':'')+' - '+fmt(new Date(x.at));}).join('\n')+'\nSay "cancel N" or "edit N <new time>".');
+    return true;}
+  var m=low.match(/^(?:cancel|delete|remove)\s+(?:alarm\s+|reminder\s+)?(\d+)$/);
+  if(m){ if(!schedOK()){bubble('ai','Alarms are not available in this build.');return true;}
+    var a=sortedItems(),it=a[parseInt(m[1],10)-1];
+    if(!it){bubble('ai','No item number '+m[1]+'. Say "list" first.');return true;}
+    bubble('ai',window.AndroidSched.cancel(it.id)?'Cancelled '+it.kind+(it.title?' "'+it.title+'"':'')+' for '+fmt(new Date(it.at))+'.':'Could not cancel it. Nothing changed.');return true;}
+  if(/^(cancel|delete|remove)\s+all$/.test(low)){ if(!schedOK()){return true;}
+    var a=sortedItems(),n=0;a.forEach(function(x){if(window.AndroidSched.cancel(x.id))n++;});
+    bubble('ai','Cancelled '+n+' item'+(n===1?'':'s')+'.');return true;}
+  m=low.match(/^edit\s+(\d+)\s+(.+)$/);
+  if(m){ if(!schedOK()){bubble('ai','Alarms are not available in this build.');return true;}
+    var a=sortedItems(),it=a[parseInt(m[1],10)-1];
+    if(!it){bubble('ai','No item number '+m[1]+'. Say "list" first.');return true;}
+    var r=parseSchedule((it.kind==='alarm'?'alarm ':'remind me to '+(it.title||'x')+' ')+m[2],new Date());
+    if(r.kind!=='ok'){bubble('ai',r.kind==='error'?r.msg:'I could not read that time.');return true;}
+    r.title=it.title;r.what=it.kind;
+    pending={parsed:r,replaceId:it.id};
+    bubble('ai','Change '+it.kind+(it.title?' "'+it.title+'"':'')+' to '+fmt(r.at)+'? Reply yes or no.');return true;}
+  var r=parseSchedule(t,new Date());
+  if(r.kind==='none')return appCmd(t);
+  if(r.kind==='error'){bubble('ai',r.msg);return true;}
+  if(!schedOK()){bubble('ai','Alarms are not available in this build.');return true;}
+  pending={parsed:r};
+  bubble('ai','I understood: '+r.what+(r.title?' "'+r.title+'"':'')+' on '+fmt(r.at)+'. Schedule it? Reply yes or no.');
+  return true;
+}
+var attOn=false,attName='';
+var ATT_ERR={unsupported:'That file type is not supported. Supported: photos (PNG, JPEG, WebP), PDF and plain text (.txt).',too_large:'That file is too large. The limit is 10 MB per file.',empty:'That file is empty.',unreadable:'I could not read that file.',no_picker:'This phone has no file picker available.'};
+function attClear(native){attOn=false;attName='';document.getElementById('att').classList.remove('on');if(native&&window.AndroidAttach)window.AndroidAttach.clear();}
+function kb(n){return n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB';}
+window.onAttach=function(js){var o;try{o=JSON.parse(js);}catch(e){return;}
+  if(!o.ok){attClear(false);bubble('ai',(ATT_ERR[o.error]||'Could not attach the file.')+(o.name?' ('+o.name+')':''));return;}
+  attOn=true;attName=o.name;document.getElementById('att-nm').textContent=o.name+' · '+kb(o.size);
+  var th=document.getElementById('att-th');if(o.thumb){th.src=o.thumb;th.style.display='block';}else{th.removeAttribute('src');th.style.display='none';}
+  document.getElementById('att').classList.add('on');inp.focus();};
+document.getElementById('att-x').addEventListener('click',function(){attClear(true);});
+document.getElementById('fbtn').addEventListener('click',function(){
+  if(!window.AndroidAttach){bubble('ai','Attachments are not available in this build.');return;}
+  if(!(window.AndroidAI&&window.AndroidAI.available&&window.AndroidAI.available())){bubble('ai','AI chat is not connected, so a file cannot be sent.');return;}
+  window.AndroidAttach.pick();});
+var aiBusy=false,aiTimer=null;
+function aiDone(){aiBusy=false;if(aiTimer){clearTimeout(aiTimer);aiTimer=null;}}
+function aiStart(){aiBusy=true;if(aiTimer)clearTimeout(aiTimer);aiTimer=setTimeout(function(){aiBusy=false;},125000);}
+function showAi(ok,text){
+  var b=bubble('ai'+(ok?'':' err'),text);
+  if(ok){var row=document.createElement('div');row.className='cprow';
+    var cb=document.createElement('button');cb.type='button';cb.className='cp';cb.setAttribute('aria-label','Copy this reply');
+    cb.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3v5.5A1.5 1.5 0 0 0 3.5 10H4"/></svg>';
+    var tm=null;
+    cb.addEventListener('click',function(e){e.stopPropagation();
+      var done=false;
+      if(window.AndroidClipboard&&window.AndroidClipboard.copy){window.AndroidClipboard.copy(text);done=true;}
+      else if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text);done=true;}
+      if(!done){cb.textContent='NOT COPIED';}else{cb.textContent='COPIED';}
+      cb.setAttribute('aria-label','Copied');
+      if(tm)clearTimeout(tm);
+      tm=setTimeout(function(){cb.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3v5.5A1.5 1.5 0 0 0 3.5 10H4"/></svg>';cb.setAttribute('aria-label','Copy this reply');},1300);
+    });
+    row.appendChild(cb);b.appendChild(row);}
+  if(!ok&&text.indexOf('Still working')!==0&&text.indexOf('There is no failed message')!==0&&window.AndroidAI&&window.AndroidAI.retry){
+    var r=document.createElement('button');r.type='button';r.className='rty';r.textContent='RETRY';
+    r.addEventListener('click',function(){
+      if(aiBusy){return;}r.remove();aiStart();
+      var nid=String(Date.now());var dots=bubble('ai dots','···');
+      window.onAiResult=function(rid,ok2,t2){if(rid!==nid)return;dots.remove();aiDone();showAi(ok2,t2);};
+      window.AndroidAI.retry(nid);});
+    b.appendChild(document.createElement('br'));b.appendChild(r);}
+}
+window.onMemNote=function(m){bubble('ai note',m);};
+function aiAsk(q){
+  aiStart();var id=String(Date.now());var dots=bubble('ai dots','···');
+  window.onAiResult=function(rid,ok,text){if(rid!==id)return;dots.remove();aiDone();showAi(ok,text);};
+  window.AndroidAI.ask(id,q);}
+function newChat(){
+  if(window.AndroidAI&&window.AndroidAI.reset)window.AndroidAI.reset();
+  window.onAiResult=null;aiDone();attClear(false);log.innerHTML='';
+  bubble('ai','New chat started. The AI has forgotten this conversation and any attached file.');}
+window.newChat=newChat;
+function send(){
+  var t=inp.value.trim();
+  if(attOn){
+    if(aiBusy){bubble('ai note','Wait for the current reply before sending another message.');return;}
+    var q=t||'Please look at this file and tell me what it contains.';
+    bubble('me','[file: '+attName+'] '+(t||''));inp.value='';
+    attClear(false);aiAsk(q);return;}
+  if(!t)return;
+  if(aiBusy){bubble('ai note','Wait for the current reply before sending another message.');return;}
+  bubble('me',t);
+  inp.value='';inp.focus();
+  if(t.toLowerCase()==='/graphics'){openPicker();return;}
+  if(handleCommand(t))return;
+  if(window.AndroidAI&&window.AndroidAI.available&&window.AndroidAI.available()){aiAsk(t);return;}
+  bubble('ai','AI chat is not connected in this version. Alarms and reminders still work: try "remind me to call mom at 5 pm".');
+}
+/* voice: push-to-talk dictation. Text lands in the box and goes through the same preview/confirm. */
+var micBtn=document.getElementById('mic'),listening=false;
+function setMic(on){listening=on;if(micBtn){micBtn.classList.toggle('on',on);micBtn.textContent=on?'STOP':'MIC';}}
+window.onVoiceResult=function(ok,text){
+  setMic(false);
+  if(ok){inp.value=text;bubble('ai','Heard: "'+text+'". Press SEND to use it, or edit it first.');inp.focus();return;}
+  var msg={no_recognizer:'This phone has no speech recognition service installed.',mic_permission_requested:'Allow the microphone when Android asks, then tap MIC again.',no_speech:'I did not hear anything.',error_9:'Microphone permission is off. Allow it in Android settings.',error_7:'Could not understand that. Try again.',error_8:'The speech service is busy. Try again.',error_2:'No connection for speech recognition on this phone.',error_5:'Speech recognition error. Try again.',error_3:'Audio problem. Try again.',error_6:'I did not hear anything.',error_1:'Speech recognition timed out.',error_4:'Speech service error.'}[text];
+  bubble('ai',msg||('Voice failed ('+text+').'));
+};
+if(micBtn)micBtn.addEventListener('click',function(){
+  if(!window.AndroidVoice){bubble('ai','Voice is not available in this build.');return;}
+  if(listening){window.AndroidVoice.stop();return;}
+  setMic(true);window.AndroidVoice.start();
+});
+btn.addEventListener('click',send);
+inp.addEventListener('keydown',function(e){if(e.key==='Enter')send();});
+
+})();
+
+(function(){
+var L=[
+['Writing',[
+['Rewrite clearer','Rewrite the text below so it is clearer and shorter. Keep my meaning and tone:\n'],
+['Polish only','Fix grammar and spelling in the text below. Change nothing else:\n'],
+['Make it formal','Rewrite the text below in a formal, polite tone:\n'],
+['Make it friendly','Rewrite the text below in a warm, friendly tone:\n'],
+['Summarize','Summarize the text below in 5 bullet points:\n'],
+['Key points + actions','List the key points and any action items in the text below:\n'],
+['Draft a reply','Draft a short, polite reply to this message. Ask me if you need details:\n']]],
+['Thinking',[
+['Explain simply','Explain this simply, as if to a beginner, with one example: '],
+['Step by step','Walk me through this step by step: '],
+['Pros and cons','Give the pros and cons of this, then a recommendation: '],
+['Compare options','Compare these options in a short table and say which fits me best: '],
+['Plan it','Make a simple plan with steps and rough timings for: '],
+['Check my reasoning','Find mistakes or gaps in my reasoning below:\n'],
+['Ask me questions','Before answering, ask me up to 3 questions you need answered. Topic: ']]],
+['Learning',[
+['Quiz me','Quiz me with 5 questions on this topic, one at a time, and mark my answers: '],
+['Study notes','Turn the text below into short study notes:\n'],
+['Define terms','Define the key terms in the text below in plain words:\n'],
+['Translate','Translate the text below into English (or tell me the target language):\n']]],
+['Work',[
+['Meeting agenda','Write a meeting agenda with timings for: '],
+['Email subject lines','Suggest 5 clear subject lines for this email:\n'],
+['Checklist','Make a checklist for: '],
+['Idea list','Give me 10 ideas for: ']]],
+['With a file',[
+['Describe image','Describe what is in the attached image.'],
+['Read the document','Summarize the attached document and list its key points.'],
+['Extract details','Pull out names, dates and amounts from the attached file.']]]
+];
+var box=document.getElementById('plib'),inp=document.getElementById('inp');
+var h='<button type="button" class="pi" id="newchat"><b>NEW CHAT</b><i>Clears this conversation and the AI memory of it.</i></button><div class="note">Tap one to put it in the message box. Nothing is sent until you press SEND. Prompts are plain text written for this app.</div>';
+L.forEach(function(g,gi){h+='<h4>'+g[0].toUpperCase()+'</h4>';g[1].forEach(function(it,ii){
+ h+='<button type="button" class="pi" data-g="'+gi+'" data-i="'+ii+'"><b>'+it[0]+'</b></button>';});});
+h+='<h4>NOT AVAILABLE</h4><button type="button" class="pi" disabled><b>UPSCALE100x</b><i>Disabled. It is a word some people share online as a "magic" image-quality trick. It is not an official feature, and this app cannot create or upscale images. It would do nothing here.</i></button>';
+box.innerHTML=h;
+box.addEventListener('click',function(e){var b=e.target.closest('.pi');if(!b||b.disabled)return;
+ var it=L[+b.dataset.g][1][+b.dataset.i];inp.value=it[1];box.classList.remove('on');inp.focus();});
+document.getElementById('newchat').addEventListener('click',function(){box.classList.remove('on');newChat();});
+document.getElementById('pbtn').addEventListener('click',function(){box.classList.toggle('on');});
+})();
+</script>
+</body>
+</html>
