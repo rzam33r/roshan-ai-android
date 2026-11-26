@@ -344,14 +344,14 @@ public class MainActivity extends Activity {
             public void onSuccess(com.google.android.gms.auth.api.identity.AuthorizationResult r) {
               if (r.hasResolution() && r.getPendingIntent() != null) {
                 try { startIntentSenderForResult(r.getPendingIntent().getIntentSender(), 31, null, 0, 0, 0); }
-                catch (Throwable e) { driveFinish("auth_failed", null); }
+                catch (Throwable e) { driveFinish(Drive.authPath("launch", e), null); }
               } else driveCall(r.getAccessToken());
             }})
           .addOnFailureListener(new com.google.android.gms.tasks.OnFailureListener() {
             public void onFailure(Exception e) {
-              int c = (e instanceof com.google.android.gms.common.api.ApiException) ? ((com.google.android.gms.common.api.ApiException) e).getStatusCode() : -1;
-              driveFinish(Drive.authKey(c), null); }});
-      } catch (Throwable e) { driveFinish("auth_failed", null); }
+              if (e instanceof com.google.android.gms.common.api.ApiException) driveFinish(Drive.authKey(((com.google.android.gms.common.api.ApiException) e).getStatusCode()), null);
+              else driveFinish(Drive.authPath("authorize", e), null); }});
+      } catch (Throwable e) { driveFinish(Drive.authPath("start", e), null); }
     }});
   }
   private static final String DAPI = "https://www.googleapis.com/drive/v3/files";
@@ -376,7 +376,7 @@ public class MainActivity extends Activity {
   }
   private static String httpErr(int code) { return code == 401 || code == 403 ? "denied" : code == 404 ? "notfound" : "http_error"; }
   private void driveCall(final String token) {
-    if (token == null || token.isEmpty()) { driveFinish("auth_failed", null); return; }
+    if (token == null || token.isEmpty()) { driveFinish("auth_p_notoken_none", null); return; }
     final String op = drvOp, a = drvA, b = drvB, cc = drvC; final android.net.Uri pick = drvUri;
     new Thread(new Runnable() { public void run() {
       try {
@@ -577,7 +577,7 @@ public class MainActivity extends Activity {
     if (req == 31) {
       String tok = null;
       try { if (res == RESULT_OK && data != null) tok = com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(data).getAccessToken(); } catch (Throwable e) { }
-      if (tok == null) driveFinish(res == RESULT_OK ? "auth_failed" : "cancelled", null); else driveCall(tok);
+      if (tok == null) driveFinish(res == RESULT_OK ? "auth_p_result_none" : "cancelled", null); else driveCall(tok);
       return;
     }
     if (req == 32) {
