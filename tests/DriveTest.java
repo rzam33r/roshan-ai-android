@@ -90,7 +90,7 @@ public class DriveTest {
     assertEquals("private", Drive.access("{\"name\":\"a\",\"shared\":false,\"permissions\":[{\"type\":\"user\",\"role\":\"owner\"}]}").getString("level"));
     assertEquals("shared", Drive.access("{\"shared\":true,\"permissions\":[{\"type\":\"anyone\",\"role\":\"reader\"}]}").getString("level"));
     assertEquals("shared", Drive.access("{\"shared\":true,\"permissions\":[{\"type\":\"user\"},{\"type\":\"user\"}]}").getString("level"));
-    assertEquals("shared", Drive.access("{\"shared\":true}").getString("level"));
+    assertEquals("unknown", Drive.access("{\"shared\":true}").getString("level"));
     assertEquals("unknown", Drive.access("{\"shared\":false}").getString("level"));
     assertEquals("unknown", Drive.access("not json").getString("level"));
     assertEquals("unsupported", Drive.access("{\"driveId\":\"x\",\"shared\":false}").getString("level"));
