@@ -86,7 +86,6 @@
   #att .nm{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#fff3d4}
   #att .x{background:none; border:1px solid rgba(255,196,87,.5); color:#ffd88a; border-radius:8px; padding:6px 10px; font:inherit; font-size:11px; cursor:pointer}
   #att .warn{margin-top:6px; line-height:1.35; color:#d9bf86; font-size:10.5px}
-  #pbtn{background:rgba(111,242,255,.1);border:1px solid rgba(111,242,255,.45);color:#aef;border-radius:10px;padding:0 6px;font:inherit;font-size:10px;letter-spacing:.04em;cursor:pointer}
   #fbtn{background:rgba(255,196,87,.12);border:1px solid rgba(255,196,87,.5);color:#ffd88a;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
   #bar{display:flex; gap:8px; padding:10px 12px calc(12px + env(safe-area-inset-bottom))}
   #inp{flex:1; min-width:0; background:rgba(111,242,255,.06); border:1px solid rgba(111,242,255,.3);
@@ -98,6 +97,7 @@
     padding:0 12px; font:inherit; font-size:12px; letter-spacing:.12em; cursor:pointer;
     text-shadow:0 0 8px rgba(111,242,255,.7)}
   #send:active{transform:scale(.96)}
+  #send.wait{opacity:.8}
   #dbtn{background:rgba(87,200,255,.12);border:1px solid rgba(87,200,255,.5);color:#bfeaff;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
   #tbtn{background:rgba(87,255,176,.12);border:1px solid rgba(87,255,176,.5);color:#bfffe0;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
   .plan{margin-top:6px;padding-left:16px}
@@ -116,7 +116,7 @@
   /* composer: full-width typing field on top, four buttons in their own row below */
   #bar{flex-wrap:wrap; gap:8px}
   #inp{flex:1 1 100%; order:0; width:100%}
-  #pbtn,#fbtn,#tbtn,#dbtn,#mic,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
+  #fbtn,#tbtn,#dbtn,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
 </style>
 </head>
 <body>
@@ -158,11 +158,9 @@
       <div class="warn">This file will go to Google's free Gemini service when you press SEND. It may be used to improve Google products or be reviewed by people. Don't attach confidential or sensitive files. Nothing is sent until you press SEND.</div></div>
     <div id="bar">
       <input id="inp" type="text" placeholder="Type a command…" autocomplete="off" enterkeyhint="send">
-      <button id="pbtn" type="button">NEW CHAT</button>
-      <button id="fbtn" type="button">FILE</button>
+      <button id="fbtn" type="button">FILES</button>
       <button id="tbtn" type="button">TASK</button>
       <button id="dbtn" type="button">G DRIVE</button>
-      <button id="mic" type="button">MIC</button>
       <button id="send" type="button">SEND</button>
     </div>
   </div>
@@ -955,11 +953,12 @@ function downloadIt(it){
     bubble('ai','Saved '+((o.info&&o.info.name)||it.name)+' to your phone Downloads folder.'+(nat?' Google files are saved as Office files (docx, xlsx, pptx) or PDF.':''));});}
 /* Access check, then explicit confirmation. The check only reads who can see a folder. */
 function checkAccess(fid,cb){dstep('Checking who can see this folder...',function(id){window.AndroidDrive.access(id,fid);},function(o){cb(o.info||{level:'unknown',text:'Could not check who can see it.',name:''});});}
+function noAccess(a){if(a.level==='private'||a.level==='shared')return false;bubble('ai',(a.level==='unsupported'&&a.text)?a.text:'I cannot tell who can see that folder, so I did nothing. Nothing was changed.');return true;}
 function accessNote(a){return a.level==='private'?'Only you can see it.':a.level==='unsupported'?a.text:a.text+' Anyone who can see it will see what you put there.';}
 function uploadHere(){
   var cf=curF();
   checkAccess(cf.id,function(a){
-    if(a.level==='unsupported'){bubble('ai',a.text);return;}
+    if(noAccess(a))return;
     askConfirm('Upload a file from your phone into "'+cf.name+'"? '+accessNote(a)+' You choose the file next. An existing file with the same name is never replaced.','CONTINUE',function(){
       dstep('Uploading...',function(id){window.AndroidDrive.upload(id,cf.id);},function(o){
         var n=(o.info&&o.info.name)||'file';bubble('ai','Uploaded '+n+' to '+cf.name+'.'+(o.info&&o.info.renamed?' A file with that name existed, so this one was saved with a new name.':''));openFolder();});});});}
@@ -968,15 +967,15 @@ function newFolder(){
   var t=document.createElement('input');t.type='text';t.maxLength=120;t.style.cssText='width:60%;margin-right:6px;font:inherit;padding:4px';row.appendChild(t);
   row.appendChild(mkBtn('CREATE',function(){var nm=t.value.trim();if(!nm){return;}b.remove();
     checkAccess(cf.id,function(a){
-      if(a.level==='unsupported'){bubble('ai',a.text);return;}
+      if(noAccess(a))return;
       var go=function(){dstep('Creating folder...',function(id){window.AndroidDrive.mkdir(id,cf.id,nm);},function(o){bubble('ai','Created folder '+((o.info&&o.info.name)||nm)+'.');openFolder();});};
-      if(a.level==='private')go();else askConfirm('Create "'+nm+'" inside "'+cf.name+'"? '+accessNote(a),'CREATE',go);});}));
+      askConfirm('Create "'+nm+'" inside "'+cf.name+'"? '+accessNote(a),'CREATE',go);});}));
   row.appendChild(mkBtn('CANCEL',function(){b.remove();}));b.appendChild(row);t.focus();}
 function moveHere(){
   var m=fm.mv,cf=curF();if(!m)return;
   if(m.from===cf.id){bubble('ai note','That file is already in this folder.');return;}
-  checkAccess(m.from,function(src){checkAccess(cf.id,function(dst){
-    if(dst.level==='unsupported'||src.level==='unsupported'){bubble('ai',(dst.level==='unsupported'?dst:src).text);return;}
+  checkAccess(m.from,function(src){if(noAccess(src))return;checkAccess(cf.id,function(dst){
+    if(noAccess(dst))return;
     var t='Move "'+m.name+'" from "'+m.fromName+'" to "'+cf.name+'"? '+'Now in "'+m.fromName+'": '+accessNote(src)+' Into "'+cf.name+'": '+accessNote(dst)+(src.level===dst.level&&dst.level==='private'?'':' Who can see the file may change.')+' Nothing is copied or deleted: the file just changes folder.';
     askConfirm(t,'MOVE',function(){
       dstep('Moving...',function(id){window.AndroidDrive.move(id,m.id,m.from,cf.id);},function(o){fm.mv=null;bubble('ai','Moved '+m.name+' to '+cf.name+'.');openFolder();});});});});}
@@ -994,6 +993,7 @@ document.getElementById('dbtn').addEventListener('click',function(){var t=inp.va
   if(t){bubble('me','[files] '+t);inp.value='';}runDrive(t);});
 function send(){
   var t=inp.value.trim();
+  if(/^(new chat|\/new)$/i.test(t)){inp.value='';newChat();return;}
   if(attOn){
     if(aiBusy){bubble('ai note','Wait for the current reply before sending another message.');return;}
     var q=t||'Please look at this file and tell me what it contains.';
@@ -1010,25 +1010,33 @@ function send(){
   bubble('ai','AI chat is not connected in this version. Alarms and reminders still work: try "remind me to call mom at 5 pm".');
 }
 /* voice: push-to-talk dictation. Text lands in the box and goes through the same preview/confirm. */
-var micBtn=document.getElementById('mic'),listening=false;
-function setMic(on){listening=on;if(micBtn){micBtn.classList.toggle('on',on);micBtn.textContent=on?'STOP':'MIC';}}
+var micBtn=document.getElementById('send'),listening=false;
+function setMic(on){listening=on;micBtn.classList.toggle('on',on);micBtn.textContent=on?'STOP':'SEND';}
 window.onVoiceResult=function(ok,text){
   setMic(false);
-  if(ok){inp.value=text;bubble('ai','Heard: "'+text+'". Press SEND to use it, or edit it first.');inp.focus();return;}
-  var msg={no_recognizer:'This phone has no speech recognition service installed.',mic_permission_requested:'Allow the microphone when Android asks, then tap MIC again.',no_speech:'I did not hear anything.',error_9:'Microphone permission is off. Allow it in Android settings.',error_7:'Could not understand that. Try again.',error_8:'The speech service is busy. Try again.',error_2:'No connection for speech recognition on this phone.',error_5:'Speech recognition error. Try again.',error_3:'Audio problem. Try again.',error_6:'I did not hear anything.',error_1:'Speech recognition timed out.',error_4:'Speech service error.'}[text];
+  if(ok){inp.value=inp.value.trim()?inp.value.trim()+' '+text:text;bubble('ai','Heard: "'+text+'". Press SEND to use it, or edit it first.');inp.focus();return;}
+  var msg={no_recognizer:'This phone has no speech recognition service installed.',mic_permission_requested:'Allow the microphone when Android asks, then double-tap SEND again.',no_speech:'I did not hear anything.',error_9:'Microphone permission is off. Allow it in Android settings.',error_7:'Could not understand that. Try again.',error_8:'The speech service is busy. Try again.',error_2:'No connection for speech recognition on this phone.',error_5:'Speech recognition error. Try again.',error_3:'Audio problem. Try again.',error_6:'I did not hear anything.',error_1:'Speech recognition timed out.',error_4:'Speech service error.'}[text];
   bubble('ai',msg||('Voice failed ('+text+').'));
 };
-if(micBtn)micBtn.addEventListener('click',function(){
+function micToggle(){
   if(!window.AndroidVoice){bubble('ai','Voice is not available in this build.');return;}
   if(listening){window.AndroidVoice.stop();return;}
   setMic(true);window.AndroidVoice.start();
+}
+/* SEND: one tap sends once, after a short wait to see if a second tap follows; two quick taps start the microphone and send nothing. */
+var tapH=null;
+btn.addEventListener('click',function(){
+  var ms=(window.__TAP_MS!==undefined)?window.__TAP_MS:300;
+  if(listening){if(tapH){(window.__tapClear||clearTimeout)(tapH);tapH=null;}micToggle();return;}
+  if(ms<=0){send();return;}
+  if(tapH){(window.__tapClear||clearTimeout)(tapH);tapH=null;btn.classList.remove('wait');micToggle();return;}
+  btn.classList.add('wait');
+  tapH=(window.__tapSet||setTimeout)(function(){tapH=null;btn.classList.remove('wait');send();},ms);
 });
-btn.addEventListener('click',send);
 inp.addEventListener('keydown',function(e){if(e.key==='Enter')send();});
 
 })();
 
-document.getElementById('pbtn').addEventListener('click',function(){newChat();});
 </script>
 </body>
 </html>
