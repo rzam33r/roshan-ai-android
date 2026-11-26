@@ -74,3 +74,7 @@ org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.8.1:jar:8769e5647557e3700
 org.jetbrains:annotations:13.0:jar:ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478
 org.reactivestreams:reactive-streams:1.0.4:jar:f75ca597789b3dac58f61857b9ac2e1034a68fa672db35055a8fb4509e325f28
 org.slf4j:slf4j-api:1.7.36:jar:d3ef575e3e4979678dc01bf1dcce51021493b4d11fb7f1be8ad982877c16a1c0
+com.google.android.gms:play-services-auth:21.3.0:aar:5d32500e5c2c2240a4932dba4d5ffd06c2a4a4a8866fd4f4befb297d295f632c
+com.google.android.gms:play-services-auth-api-phone:18.0.2:aar:bfdf380e7400a9d950cba4dedc152b1bce614a87353009e851087428927cc240
+com.google.android.gms:play-services-auth-base:18.0.10:aar:d8bff2c98d239633fb550229e527779425bfb51ff04b96ac0f12d3acba0b1f42
+com.google.android.gms:play-services-fido:20.0.1:aar:b3526f0caedaa96c526cc4c9ba94b229dad5afe31f32f46f6cd668a03624fd42
