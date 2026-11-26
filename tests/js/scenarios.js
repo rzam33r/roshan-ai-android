@@ -142,9 +142,9 @@ window.onAiResult(window.__aid,true,'ok');var all=sent.join('|');ok('after file 
 window.AndroidAI=oa;window.AndroidPlan.plan=op;
 // FOUR main buttons only: FILES, TASK, G DRIVE, SEND. No NEW CHAT, MIC or PROMPTS button.
 var all2=[].slice.call(document.querySelectorAll('button')).map(function(x){return x.textContent;});
-var row=[].slice.call(document.querySelectorAll('#fbtn,#tbtn,#dbtn,#send')).map(function(x){return x.textContent;});
+var row=[].slice.call(document.querySelectorAll('#fbtn,#tbtn,#send')).map(function(x){return x.textContent;});
 ok('PROMPTS button is gone, no prompt panel',all2.indexOf('PROMPTS')<0&&!document.getElementById('plib'));
-ok('main row is exactly FILES, TASK, G DRIVE, SEND',row.join()==='FILES,TASK,G DRIVE,SEND'&&all2.indexOf('NEW CHAT')<0&&all2.indexOf('MIC')<0&&!document.getElementById('pbtn')&&!document.getElementById('mic'));
+ok('visible main row is exactly FILES, TASK, SEND (G DRIVE moved to Cloud menu)',row.join()==='FILES,TASK,SEND'&&document.getElementById('dbtn').offsetParent===null&&all2.indexOf('NEW CHAT')<0&&all2.indexOf('MIC')<0&&!document.getElementById('pbtn')&&!document.getElementById('mic'));
 // typed reset, local only
 (function(){var sent=[];var oa=window.AndroidAI;
 window.AndroidAI={available:function(){return true;},reset:function(){sent.push('reset');},retry:function(){},ask:function(id,q){sent.push('ask:'+q);}};
@@ -175,5 +175,26 @@ window.__TAP_MS=0;delete window.__tapSet;delete window.__tapClear;window.Android
 (function(){function txt(){return document.getElementById('log').textContent;}window.__calls=[];document.getElementById('inp').value='';document.getElementById('dbtn').click();window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_c13',items:[]}));ok('auth code is shown as a number only',/failed with code 13/.test(txt()));
 window.__calls=[];document.getElementById('dbtn').click();window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_p_authorize_SomeException',items:[]}));ok('auth step and class name are shown',/step "authorize" \(SomeException\)/.test(txt()));
 window.__calls=[];document.getElementById('dbtn').click();window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_p_x<b>_Y',items:[]}));ok('unknown auth key is not shown raw',txt().indexOf('<b>')<0);})();
+
+// /command and Cloud dropdowns
+(function(){function txt(){return document.getElementById('log').textContent;}
+var mn=document.getElementById('menu');
+ok('top-right text is /command, FILAMENT TORUS gone',document.getElementById('chip-cmd').textContent.indexOf('/command')===0&&document.getElementById('chip-gfx')===null);
+ok('chip shows /command',document.getElementById('chip-cmd').textContent.indexOf('/command')===0);
+document.getElementById('chip-cmd').click();
+var its=[].slice.call(mn.querySelectorAll('button')).map(function(x){return x.textContent;});
+ok('/command menu lists only implemented commands',its.join()==='/graphics,/new,/files,/task,/drive'&&mn.style.display==='block');
+window.__calls=[];aiBusy=false;var before=txt();
+mn.querySelectorAll('button')[4].click();
+ok('/drive menu item runs the Drive flow and closes menu',window.__calls.join()==='dlist:root'&&mn.style.display==='none');
+document.getElementById('chip-cmd').click();mn.querySelectorAll('button')[0].click();
+ok('/graphics menu item opens picker',document.getElementById('picker').classList.contains('open'));
+document.getElementById('chip-cloud').click();
+var c=[].slice.call(mn.querySelectorAll('button')).map(function(x){return x.textContent;});
+ok('Cloud menu lists G Drive only',c.join()==='G Drive');
+window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_p_x',items:[]}));window.__calls=[];aiBusy=false;mn.querySelectorAll('button')[0].click();
+ok('Cloud G Drive runs Drive flow',window.__calls.join()==='dlist:root');
+ok('menu selections do not reach Gemini or planner',window.__calls.indexOf('ask')<0);
+})();
 res.push('JSTEST DONE');var p=document.createElement('pre');p.id='jsres';p.textContent=res.join('\n');document.body.appendChild(p);
 })();
