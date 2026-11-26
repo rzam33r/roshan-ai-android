@@ -116,6 +116,8 @@
   /* background responds to a finger by default; only empty areas reach it, messages/buttons/input keep their own touches */
   #dash{pointer-events:auto; touch-action:none}
   header{pointer-events:none}
+  header{z-index:30} body.pk header{z-index:0}
+  .chips span[role=button],.menu,.menu button{pointer-events:auto}
   #chat,#log{pointer-events:none}
   #log .msg,#bar,#att{pointer-events:auto}
   /* composer: full-width typing field on top, four buttons in their own row below */
