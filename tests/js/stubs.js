@@ -4,4 +4,7 @@ window.AndroidSched={add:function(k,t,y,mo,d,h,mi){window.__calls.push('add:'+k+
 window.AndroidApps={find:function(n){window.__calls.push('find:'+n);return JSON.stringify(window.__find||{ok:true,exact:true,seen:5,total:1,items:[{label:'YouTube',pkg:'com.yt'}]});},open:function(p){window.__calls.push('open:'+p);return '{"ok":true}';},handoff:function(k,a,b){window.__calls.push('handoff:'+k+':'+a+':'+b);return JSON.stringify(window.__ho||{ok:true});}};
 window.AndroidAI={available:function(){return false;},reset:function(){window.__calls.push('reset');}};
 
-window.__drv={};window.AndroidDrive={available:function(){return true;},search:function(id,t){window.__calls.push('drive:'+t);window.__drv.id=id;},open:function(l){window.__calls.push('dopen:'+l);return true;}};
+window.__drv={};
+function __rec(n){return function(){var a=[].slice.call(arguments);window.__drv.id=a[0];window.__calls.push(n+':'+a.slice(1).join('|'));};}
+window.AndroidDrive={available:function(){return true;},search:function(id,t){window.__calls.push('drive:'+t);window.__drv.id=id;},open:function(l){window.__calls.push('dopen:'+l);return true;},
+ list:__rec('dlist'),access:__rec('daccess'),download:__rec('ddl'),mkdir:__rec('dmk'),move:__rec('dmv'),upload:__rec('dup')};
