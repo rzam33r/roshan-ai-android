@@ -80,22 +80,26 @@ window.AndroidAI=oa;window.AndroidPlan.plan=op;})();
 function drv(o){window.onDriveResult(window.__drv.id,JSON.stringify(o));}
 function b(label){var all=[].slice.call(document.querySelectorAll('#log button'));var s=0;all.forEach(function(x,i){if(x.textContent==='UPLOAD HERE')s=i;});if(s>0&&all[s-1].textContent==='BACK')s--;return all.slice(s).filter(function(x){return x.textContent===label;});}
 function lastb(label){var a=b(label);return a[a.length-1];}
+function fold(n){var a=[].slice.call(document.querySelectorAll('#log .fm-t.fd'));if(n)a=a.filter(function(x){return x.getAttribute('data-name')===n;});return a[a.length-1];}
+function pick(n){var a=[].slice.call(document.querySelectorAll('#log .fm-t:not(.fd)')).filter(function(x){return x.getAttribute('data-name')===n;});a[a.length-1].click();}
 function txt(){return document.getElementById('log').textContent;}
 aiBusy=false;window.__calls=[];document.getElementById('inp').value='';document.getElementById('dbtn').click();
 ok('G DRIVE opens root list',window.__calls.join()==='dlist:root');
 var items=[{id:'fold11111',name:'Taxes',type:'application/vnd.google-apps.folder',folder:true,size:-1,modified:'2026-01-01T00:00:00Z',shared:false,link:''},{id:'file22222',name:'Plan.docx',type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',folder:false,size:2048,modified:'2026-02-01T00:00:00Z',shared:false,link:'https://drive.google.com/file/d/file22222/view'},{id:'gdoc33333',name:'Notes',type:'application/vnd.google-apps.document',folder:false,size:-1,modified:'',shared:false,link:''}];
 drv({ok:true,error:'',op:'list',items:items});
-ok('root shows folder and files with buttons',/Drive: My Drive/.test(txt())&&b('OPEN FOLDER').length===1&&b('DOWNLOAD').length===2&&b('MOVE').length===2&&b('UPLOAD HERE').length===1&&b('NEW FOLDER').length===1);
-window.__calls=[];lastb('OPEN FOLDER').click();ok('OPEN FOLDER lists that folder',window.__calls.join()==='dlist:fold11111');
+ok('root shows folder and file tiles with toolbar',/Drive: My Drive/.test(txt())&&document.querySelectorAll('#log .fm .fm-t.fd').length===1&&document.querySelectorAll('#log .fm .fm-t:not(.fd)').length===2&&b('DOWNLOAD').length===0&&b('UPLOAD HERE').length===1&&b('NEW FOLDER').length===1);
+pick('Plan.docx');ok('tapping a file shows VIEW, DOWNLOAD, MOVE for that file only',b('DOWNLOAD').length===1&&b('MOVE').length===1&&b('VIEW').length===1&&/Plan\.docx/.test(document.querySelector('#log .fm-act').textContent));
+lastb('DONE').click();ok('DONE hides the file actions',b('DOWNLOAD').length===0);
+window.__calls=[];fold('Taxes').click();ok('folder tile lists that folder',window.__calls.join()==='dlist:fold11111');
 drv({ok:true,error:'',op:'list',items:[]});ok('empty folder shown with BACK',/Taxes\s+\(empty\)/.test(txt())&&b('BACK').length>=1);
 window.__calls=[];lastb('BACK').click();ok('BACK lists root again',window.__calls.join()==='dlist:root');drv({ok:true,error:'',op:'list',items:items});
 // download
-window.__calls=[];b('DOWNLOAD')[0].click();ok('DOWNLOAD passes id and type',window.__calls.join()==='ddl:file22222|application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+window.__calls=[];pick('Plan.docx');window.__calls=[];lastb('DOWNLOAD').click();ok('DOWNLOAD passes id and type',window.__calls.join()==='ddl:file22222|application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 drv({ok:true,error:'',op:'dl',items:[],info:{name:'Plan.docx',bytes:2048}});ok('download result says saved to Downloads',/Saved Plan\.docx to your phone Downloads/.test(txt()));
-window.__calls=[];b('DOWNLOAD')[1].click();drv({ok:false,error:'export_too_big'});ok('export limit stated honestly',/10 MB/.test(txt()));
+window.__calls=[];pick('Notes');lastb('DOWNLOAD').click();drv({ok:false,error:'export_too_big'});ok('export limit stated honestly',/10 MB/.test(txt()));
 // move: nothing changes before CONFIRM
-window.__calls=[];b('MOVE')[0].click();ok('MOVE only arms move mode',window.__calls.length===0&&/Moving: Plan\.docx/.test(txt()));
-window.__calls=[];lastb('OPEN FOLDER').click();drv({ok:true,error:'',op:'list',items:[]});
+window.__calls=[];pick('Plan.docx');lastb('MOVE').click();ok('MOVE only arms move mode',window.__calls.length===0&&/Moving: Plan\.docx/.test(txt()));
+window.__calls=[];fold('Taxes').click();drv({ok:true,error:'',op:'list',items:[]});
 window.__calls=[];lastb('MOVE HERE').click();ok('MOVE HERE first only reads who can see the source',window.__calls.join()==='daccess:root');
 drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.',name:'My Drive'}});
 ok('then reads the destination',window.__calls.join()==='daccess:root,daccess:fold11111');
@@ -108,7 +112,7 @@ drv({ok:true,error:'',op:'mv',items:[],info:{name:'Plan.docx'}});ok('move result
 drv({ok:true,error:'',op:'list',items:[]});
 // move with unknown audience is refused (source unknown, then destination unknown)
 window.__calls=[];lastb('BACK').click();drv({ok:true,error:'',op:'list',items:items});
-b('MOVE')[0].click();window.__calls=[];lastb('OPEN FOLDER').click();drv({ok:true,error:'',op:'list',items:[]});
+pick('Plan.docx');lastb('MOVE').click();window.__calls=[];fold('Taxes').click();drv({ok:true,error:'',op:'list',items:[]});
 window.__calls=[];lastb('MOVE HERE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'unknown',text:'x'}});
 ok('UNKNOWN source: move refused, destination not even read, no bridge move',window.__calls.join()==='daccess:root'&&/cannot tell who can see/.test(txt())&&b('MOVE').filter(function(x){return x.parentNode&&/Move "/.test(x.parentNode.textContent);}).length===0);
 window.__calls=[];lastb('MOVE HERE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.'}});drv({ok:true,error:'',op:'access',items:[],info:{level:'unknown',text:'x'}});
@@ -132,6 +136,32 @@ window.__calls=[];lastb('NEW FOLDER').click();ti=document.querySelector('#log in
 window.__calls=[];lastb('NEW FOLDER').click();ti=document.querySelector('#log input[type=text]');ti.value='X2';lastb('CREATE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.'}});ok('PRIVATE parent still asks confirm before mkdir',window.__calls.join().indexOf('dmk')<0&&/Create "X2" inside/.test(txt()));lastb('CANCEL').click();
 // errors are fixed sentences
 window.__calls=[];lastb('UPLOAD HERE').click();drv({ok:false,error:'unsupported',detail:'Secret Drive.xlsx'});ok('error text is generic',/shared drive/.test(txt())&&txt().indexOf('Secret Drive')<0);
+// Drive grid: thumbnails, folder previews, list view, breadcrumbs
+window.__thumbs=[];window.__calls=[];lastb('CLOSE').click();document.getElementById('dbtn').click();
+var it2=[{id:'fold11111',name:'Taxes',type:'application/vnd.google-apps.folder',folder:true,size:-1,modified:'2026-01-01T00:00:00Z',shared:false,link:''},{id:'img44444',name:'Beach.jpg',type:'image/jpeg',folder:false,size:90000,modified:'2026-03-01T00:00:00Z',shared:true,link:'https://drive.google.com/file/d/img44444/view',thumb:true},{id:'file22222',name:'Plan.docx',type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',folder:false,size:2048,modified:'',shared:false,link:'',thumb:false}];
+drv({ok:true,error:'',op:'list',items:it2});
+var th=window.__thumbs.join('|'),gm=/thumbs:(g\d+):img44444(\||$)/.exec(th);
+ok('thumbnails asked only for files that have one; folders fetch nothing',!!gm&&th.indexOf('file22222')<0&&th.indexOf('fold11111')<0);
+ok('folder tile is a yellow folder icon with name and (date)',!!document.querySelector('#log .fm .fm-t.fd svg')&&/\(2026-01-01\)/.test(document.querySelector('#log .fm .fm-t.fd').textContent)&&!!document.querySelector('#log .fm .fm-g.fold'));
+ok('uncoloured folder is yellow',/fill="#ffd60a"/.test(document.querySelector('#log .fm .fm-t.fd .fm-th').innerHTML));
+ok('file without thumbnail shows its type badge',/DOC/.test(document.querySelector('#log .fm .fm-t[data-name="Plan.docx"] .fm-th').textContent));
+var PX='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+window.onDriveThumb(gm[1],'img44444',PX);
+ok('thumbnail is drawn in the tile',(document.querySelector('#log .fm .fm-t[data-name="Beach.jpg"] img')||{}).src===PX);
+window.onDriveThumb(gm[1],'img44444','javascript:alert(1)');window.onDriveThumb(gm[1],'img44444','data:text/html;base64,PGI+');
+ok('non-image thumbnail data is ignored',(document.querySelector('#log .fm .fm-t[data-name="Beach.jpg"] img')||{}).src===PX);
+ok('SHARED tag shown on shared files',/SHARED/.test(document.querySelector('#log .fm .fm-t[data-name="Beach.jpg"]').textContent));
+window.__thumbs=[];lastb('LIST VIEW').click();ok('LIST VIEW redraws as rows, cached thumbnail kept, nothing fetched again',!!document.querySelector('#log .fm .fm-g.ls')&&!!document.querySelector('#log .fm .fm-t[data-name="Beach.jpg"] img')&&window.__thumbs.length===0);
+lastb('GRID VIEW').click();ok('GRID VIEW switches back',!document.querySelector('#log .fm .fm-g.ls'));
+window.__calls=[];lastb('CLOSE').click();document.getElementById('dbtn').click();drv({ok:true,error:'',op:'list',items:[{id:'foldc1111',name:'Red',type:'application/vnd.google-apps.folder',folder:true,size:-1,modified:'',color:'#f83a22'},{id:'foldc2222',name:'Bad',type:'application/vnd.google-apps.folder',folder:true,size:-1,modified:'',color:'red" onload="x'}]});
+var fh=[].map.call(document.querySelectorAll('#log .fm .fm-t.fd .fm-th'),function(x){return x.innerHTML;});
+ok('folder uses its Drive colour; a bad colour falls back to yellow',/fill="#f83a22"/.test(fh[0])&&/fill="#ffd60a"/.test(fh[1])&&fh[1].indexOf('onload')<0);
+lastb('CLOSE').click();document.getElementById('dbtn').click();drv({ok:true,error:'',op:'list',items:it2});
+window.__calls=[];fold('Taxes').click();drv({ok:true,error:'',op:'list',items:[]});
+var crs=[].slice.call(document.querySelectorAll('#log .fm .fm-path .cr'));
+window.__calls=[];crs[0].click();ok('breadcrumb My Drive lists root',window.__calls.join()==='dlist:root');drv({ok:true,error:'',op:'list',items:it2});
+ok('Drive names and thumbnails never reach the model bridges',window.__thumbs.join().indexOf('Beach')<0);
+window.__calls=[];fold('Taxes').click();drv({ok:true,error:'',op:'list',items:[]});
 // FILES then Gemini / TASK: only typed words go to the model bridges
 var sent=[];var oa=window.AndroidAI,op=window.AndroidPlan.plan;
 window.AndroidAI={available:function(){return true;},reset:function(){window.__calls.push('reset');},retry:function(){},ask:function(id,q){sent.push('ask:'+q);window.__aid=id;}};

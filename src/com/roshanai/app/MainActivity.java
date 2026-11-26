@@ -284,6 +284,10 @@ public class MainActivity extends Activity {
 
   /** Drive file manager. Each action needs the user's tap in the app; the token stays in memory for one call. Names and results go only to the screen: never to Gemini, chat history, the planner or attachments. No delete, trash or sharing calls exist in this code. */
   private String drvId, drvOp, drvA, drvB, drvC; private android.net.Uri drvUri; private boolean drvBusy; private long drvAt;
+  // Thumbnails: last Drive token (memory only, ~45 min), id -> thumbnail link, and the current preview request. Thumbnails are drawn on screen only.
+  private volatile String drvToken; private volatile long drvTokenAt; private volatile String thumbReq = "";
+  private final java.util.concurrent.ConcurrentHashMap<String, String> thumbLinks = new java.util.concurrent.ConcurrentHashMap<String, String>();
+  private final java.util.concurrent.ExecutorService thumbPool = java.util.concurrent.Executors.newFixedThreadPool(3);
   public class DriveBridge {
     @JavascriptInterface public boolean available() { return true; }
     private boolean begin(String id, String op, String a, String b, String c) {
@@ -327,6 +331,8 @@ public class MainActivity extends Activity {
         } catch (Throwable e) { driveFinish("no_picker", null); }
       }});
     }
+    /** Fetches thumbnails for files from the last list. Never blocks other Drive steps. Results go to window.onDriveThumb(req, id, dataUri). */
+    @JavascriptInterface public void thumbs(String req, String csv) { thumbStart(req, Drive.idList(csv)); }
     @JavascriptInterface public boolean open(String link) {
       if (!Drive.linkOk(link)) return false;
       try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true; }
@@ -377,18 +383,21 @@ public class MainActivity extends Activity {
   private static String httpErr(int code) { return code == 401 || code == 403 ? "denied" : code == 404 ? "notfound" : "http_error"; }
   private void driveCall(final String token) {
     if (token == null || token.isEmpty()) { driveFinish("auth_p_notoken_none", null); return; }
+    drvToken = token; drvTokenAt = System.currentTimeMillis();
     final String op = drvOp, a = drvA, b = drvB, cc = drvC; final android.net.Uri pick = drvUri;
     new Thread(new Runnable() { public void run() {
       try {
         if ("search".equals(op)) {
-          String u = DAPI + "?pageSize=" + Drive.MAX_ITEMS + "&orderBy=modifiedTime%20desc&spaces=drive&fields=" + android.net.Uri.encode("files(id,name,mimeType,size,modifiedTime,shared,driveId,webViewLink)") + "&q=" + android.net.Uri.encode(a);
+          String u = DAPI + "?pageSize=" + Drive.MAX_ITEMS + "&orderBy=modifiedTime%20desc&spaces=drive&fields=" + android.net.Uri.encode("files(id,name,mimeType,size,modifiedTime,shared,driveId,webViewLink,hasThumbnail,thumbnailLink,folderColorRgb)") + "&q=" + android.net.Uri.encode(a);
           Object[] r = driveHttp("GET", u, token, null);
           if ((Integer) r[0] != 200) { driveFinish(httpErr((Integer) r[0]), null); return; }
+          thumbLinks.putAll(Drive.thumbLinks((String) r[1]));
           driveFinish(null, Drive.parseList((String) r[1]));
         } else if ("list".equals(op)) {
-          String u = DAPI + "?pageSize=" + Drive.MAX_LIST + "&orderBy=folder,name&spaces=drive&fields=" + android.net.Uri.encode("files(id,name,mimeType,size,modifiedTime,shared,driveId,webViewLink)") + "&q=" + android.net.Uri.encode(Drive.listQuery(a));
+          String u = DAPI + "?pageSize=" + Drive.MAX_LIST + "&orderBy=folder,name&spaces=drive&fields=" + android.net.Uri.encode("files(id,name,mimeType,size,modifiedTime,shared,driveId,webViewLink,hasThumbnail,thumbnailLink,folderColorRgb)") + "&q=" + android.net.Uri.encode(Drive.listQuery(a));
           Object[] r = driveHttp("GET", u, token, null);
           if ((Integer) r[0] != 200) { driveFinish(httpErr((Integer) r[0]), null); return; }
+          thumbLinks.putAll(Drive.thumbLinks((String) r[1]));
           driveFinish(null, Drive.parseList((String) r[1]));
         } else if ("access".equals(op)) {
           Object[] r = driveHttp("GET", DAPI + "/" + a + "?supportsAllDrives=true&fields=" + android.net.Uri.encode("id,name,shared,driveId,permissions(type,role)"), token, null);
@@ -407,6 +416,37 @@ public class MainActivity extends Activity {
         else driveFinish("bad_request", null);
       } catch (Throwable e) { driveFinish("network", null); }
     }}).start();
+  }
+  private void thumbStart(final String req, final java.util.List<String> ids) {
+    if (req == null || req.length() > 40 || ids.isEmpty()) return;
+    final String token = drvToken;
+    if (token == null || System.currentTimeMillis() - drvTokenAt > 45 * 60000L) return;
+    thumbReq = req;
+    if (thumbLinks.size() > 2000) thumbLinks.clear();
+    for (final String id : ids) thumbPool.execute(new Runnable() { public void run() {
+      try { thumbOne(req, id, token); } catch (Throwable e) { }
+    }});
+  }
+  /** One thumbnail as a data URI. Google hosts only, redirects re-checked, images only, size capped. */
+  private void thumbOne(String req, String id, String token) throws Exception {
+    if (!req.equals(thumbReq)) return;
+    String u = Drive.sizedThumb(thumbLinks.get(id), Drive.THUMB_PX);
+    for (int hop = 0; hop < 3 && u != null; hop++) {
+      java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
+      try {
+        c.setInstanceFollowRedirects(false); c.setConnectTimeout(8000); c.setReadTimeout(10000);
+        c.setRequestProperty("Authorization", "Bearer " + token);
+        int code = c.getResponseCode();
+        if (code >= 300 && code < 400) { String loc = c.getHeaderField("Location"); u = Drive.thumbOk(loc) ? loc : null; continue; }
+        String mime = Drive.imageMime(c.getContentType());
+        if (code != 200 || mime == null) return;
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n, tot = 0;
+        try (java.io.InputStream in = c.getInputStream()) { while ((n = in.read(buf)) > 0) { tot += n; if (tot > Drive.MAX_THUMB_BYTES) return; bo.write(buf, 0, n); } }
+        String data = "data:" + mime + ";base64," + android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP);
+        evalJs("window.onDriveThumb&&window.onDriveThumb(" + JSONObject.quote(req) + "," + JSONObject.quote(id) + "," + JSONObject.quote(data) + ")");
+        return;
+      } finally { c.disconnect(); }
+    }
   }
   private java.util.Set<String> driveNames(String token, String name, String folder) throws Exception {
     java.util.Set<String> s = new java.util.HashSet<String>();

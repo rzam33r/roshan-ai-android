@@ -105,4 +105,46 @@ public class DriveTest {
       for (String b : banned) assertFalse(f + " contains " + b, src.contains(b));
     }
   }
+
+  @Test public void thumbHostsAllowList() {
+    assertTrue(Drive.thumbOk("https://lh3.googleusercontent.com/abc=s220"));
+    assertTrue(Drive.thumbOk("https://drive.google.com/thumbnail?id=1"));
+    assertFalse(Drive.thumbOk("http://lh3.googleusercontent.com/abc"));
+    assertFalse(Drive.thumbOk("https://googleusercontent.com.evil.com/x"));
+    assertFalse(Drive.thumbOk("https://evilgoogleusercontent.com/x"));
+    assertFalse(Drive.thumbOk("https://u@lh3.googleusercontent.com/x"));
+    assertFalse(Drive.thumbOk(null));
+  }
+  @Test public void thumbSize() {
+    assertEquals("https://lh3.googleusercontent.com/abc=s220", Drive.sizedThumb("https://lh3.googleusercontent.com/abc=s1600", 220));
+    assertEquals("https://lh3.googleusercontent.com/abc", Drive.sizedThumb("https://lh3.googleusercontent.com/abc", 220));
+    assertNull(Drive.sizedThumb("https://evil.com/abc=s10", 220));
+  }
+  @Test public void thumbLinksOnlyWhenGoogleSaysSo() {
+    String body = "{\"files\":[{\"id\":\"aaaaa1\",\"hasThumbnail\":true,\"thumbnailLink\":\"https://lh3.googleusercontent.com/t=s220\"},"
+      + "{\"id\":\"bbbbb2\",\"hasThumbnail\":false,\"thumbnailLink\":\"https://lh3.googleusercontent.com/u=s220\"},"
+      + "{\"id\":\"ccccc3\",\"hasThumbnail\":true,\"thumbnailLink\":\"https://evil.com/x\"},{\"id\":\"bad id\",\"hasThumbnail\":true,\"thumbnailLink\":\"https://lh3.googleusercontent.com/v\"}]}";
+    java.util.Map<String, String> m = Drive.thumbLinks(body);
+    assertEquals(1, m.size()); assertEquals("https://lh3.googleusercontent.com/t=s220", m.get("aaaaa1"));
+  }
+  @Test public void idListCleansAndCaps() {
+    assertEquals(java.util.Arrays.asList("aaaaa1", "bbbbb2"), Drive.idList("aaaaa1, bbbbb2,aaaaa1,root,bad id,'x"));
+    StringBuilder b = new StringBuilder(); for (int i = 0; i < 100; i++) b.append("id").append(10000 + i).append(',');
+    assertEquals(Drive.MAX_THUMB_IDS, Drive.idList(b.toString()).size());
+    assertTrue(Drive.idList(null).isEmpty());
+  }
+  @Test public void imageTypesOnly() {
+    assertEquals("image/jpeg", Drive.imageMime("image/jpeg; charset=binary")); assertEquals("image/png", Drive.imageMime("IMAGE/PNG"));
+    assertNull(Drive.imageMime("text/html")); assertNull(Drive.imageMime("image/svg+xml")); assertNull(Drive.imageMime(null));
+  }
+  @Test public void listCarriesThumbFlagNotLink() throws Exception {
+    JSONArray a = Drive.parseList("{\"files\":[{\"id\":\"aaaaa1\",\"name\":\"p.jpg\",\"mimeType\":\"image/jpeg\",\"hasThumbnail\":true,\"thumbnailLink\":\"https://lh3.googleusercontent.com/t\"}]}");
+    assertTrue(a.getJSONObject(0).getBoolean("thumb")); assertFalse(a.toString().contains("googleusercontent"));
+  }
+  @Test public void folderColours() throws Exception {
+    assertEquals("#f83a22", Drive.folderColor("#F83A22")); assertEquals("", Drive.folderColor("#8f8f8f"));
+    assertEquals("", Drive.folderColor("red")); assertEquals("", Drive.folderColor("#fff;x")); assertEquals("", Drive.folderColor(null));
+    JSONArray a = Drive.parseList("{\"files\":[{\"id\":\"aaaaa1\",\"name\":\"F\",\"mimeType\":\"application/vnd.google-apps.folder\",\"folderColorRgb\":\"#16a765\"},{\"id\":\"aaaaa2\",\"name\":\"x\",\"mimeType\":\"image/png\",\"folderColorRgb\":\"#16a765\"}]}");
+    assertEquals("#16a765", a.getJSONObject(0).getString("color")); assertEquals("", a.getJSONObject(1).getString("color"));
+  }
 }

@@ -153,11 +153,72 @@ public final class Drive {
           .put("type", mime.replaceAll("[^A-Za-z0-9./+\\-]", ""))
           .put("folder", FOLDER.equals(mime)).put("size", o.optLong("size", -1))
           .put("modified", o.optString("modifiedTime", "").replaceAll("[^0-9TZ:.\\-]", ""))
-          .put("shared", o.optBoolean("shared", false)).put("link", linkOk(link) ? link : "");
+          .put("shared", o.optBoolean("shared", false)).put("link", linkOk(link) ? link : "")
+          .put("thumb", o.optBoolean("hasThumbnail", false) && thumbOk(o.optString("thumbnailLink", "")))
+          .put("color", FOLDER.equals(mime) ? folderColor(o.optString("folderColorRgb", "")) : "");
         out.put(r);
       }
     } catch (Exception e) { }
     return out;
+  }
+
+  // ---- File thumbnails. Drawn on screen only, never sent to Gemini, the planner or chat memory. ----
+  public static final int THUMB_PX = 220, MAX_THUMB_BYTES = 150000, MAX_THUMB_IDS = 60;
+
+  /** Thumbnail links must be https on Google's own hosts, with no user info. */
+  public static boolean thumbOk(String u) {
+    if (u == null || u.length() > 2000) return false;
+    try {
+      java.net.URI x = new java.net.URI(u);
+      String h = x.getHost();
+      return "https".equals(x.getScheme()) && x.getUserInfo() == null && h != null
+        && (h.endsWith(".googleusercontent.com") || h.equals("drive.google.com") || h.equals("docs.google.com"));
+    } catch (Exception e) { return false; }
+  }
+
+  /** Asks Google for a small square-ish thumbnail: replaces a trailing =sNNN size with =s{px}. */
+  public static String sizedThumb(String u, int px) {
+    if (!thumbOk(u)) return null;
+    return u.matches(".*=s\\d{1,4}$") ? u.replaceAll("=s\\d{1,4}$", "=s" + px) : u;
+  }
+
+  /** id -> thumbnail link for items Google says have a thumbnail. Links never leave Java. */
+  public static java.util.Map<String, String> thumbLinks(String body) {
+    java.util.Map<String, String> m = new java.util.HashMap<String, String>();
+    try {
+      JSONArray f = new JSONObject(body).optJSONArray("files");
+      if (f != null) for (int i = 0; i < f.length(); i++) {
+        JSONObject o = f.optJSONObject(i); if (o == null) continue;
+        String id = o.optString("id", ""), l = o.optString("thumbnailLink", "");
+        if (validId(id) && !"root".equals(id) && o.optBoolean("hasThumbnail", false) && thumbOk(l)) m.put(id, l);
+      }
+    } catch (Exception e) { }
+    return m;
+  }
+
+  /** Comma-separated ids from the page: valid, not root, no repeats, capped. */
+  public static java.util.List<String> idList(String csv) {
+    java.util.LinkedHashSet<String> s = new java.util.LinkedHashSet<String>();
+    if (csv != null) for (String p : csv.split(",")) {
+      String t = p.trim();
+      if (validId(t) && !"root".equals(t)) s.add(t);
+      if (s.size() >= MAX_THUMB_IDS) break;
+    }
+    return new java.util.ArrayList<String>(s);
+  }
+
+  /** Only real image types become data URIs. */
+  public static String imageMime(String ct) {
+    if (ct == null) return null;
+    String t = ct.toLowerCase(java.util.Locale.ROOT).split(";")[0].trim();
+    return t.equals("image/jpeg") || t.equals("image/png") || t.equals("image/webp") || t.equals("image/gif") ? t : null;
+  }
+
+  /** Drive folder colour as #rrggbb, or "" for none. Google reports #8f8f8f for folders that were never coloured. */
+  public static String folderColor(String c) {
+    if (c == null || !c.matches("#[0-9A-Fa-f]{6}")) return "";
+    String l = c.toLowerCase(java.util.Locale.ROOT);
+    return l.equals("#8f8f8f") ? "" : l;
   }
 
   /** Reads a files.get answer (shared flag, shared drive, permission types) and says who can see the item. Never assumes private. */
