@@ -31,6 +31,10 @@ public final class Drive {
     return "name contains '" + t.replace("\\", "\\\\").replace("'", "\\'") + "' and trashed = false";
   }
 
+  /** Maps a Google status code to a fixed allowlisted key. Never uses exception text. */
+  public static String authKey(int code) {
+    switch (code) { case 4: case 7: case 8: case 10: case 12: case 16: case 17: case 12500: case 12501: return "auth_c" + code; default: return "auth_failed"; }
+  }
   public static boolean linkOk(String u) {
     if (u == null || u.length() > 600) return false;
     try {
