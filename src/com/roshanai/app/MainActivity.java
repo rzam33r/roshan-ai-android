@@ -282,31 +282,49 @@ public class MainActivity extends Activity {
   }
 
 
-  /** Read-only Drive name search. Needs the user's tap on Google's consent. The token stays in memory for one call. Results go only to the screen: never to Gemini, chat history, the planner or attachments. */
-  private String drvId, drvTerm; private boolean drvBusy; private long drvAt;
+  /** Drive file manager. Each action needs the user's tap in the app; the token stays in memory for one call. Names and results go only to the screen: never to Gemini, chat history, the planner or attachments. No delete, trash or sharing calls exist in this code. */
+  private String drvId, drvOp, drvA, drvB, drvC; private android.net.Uri drvUri; private boolean drvBusy; private long drvAt;
   public class DriveBridge {
     @JavascriptInterface public boolean available() { return true; }
-    @JavascriptInterface public void search(final String id, final String term) {
-      final String q = Drive.buildQuery(term);
-      if (q == null) { driveOut(id, "empty", null); return; }
-      if (drvBusy && System.currentTimeMillis() - drvAt < 120000) { driveOut(id, "busy", null); return; }
-      drvBusy = true; drvAt = System.currentTimeMillis(); drvId = id; drvTerm = q;
+    private boolean begin(String id, String op, String a, String b, String c) {
+      if (drvBusy && System.currentTimeMillis() - drvAt < 300000) { driveOut(id, "busy", null, null); return false; }
+      drvBusy = true; drvAt = System.currentTimeMillis(); drvId = id; drvOp = op; drvA = a; drvB = b; drvC = c; drvUri = null;
+      return true;
+    }
+    @JavascriptInterface public void search(String id, String term) {
+      String q = Drive.buildQuery(term);
+      if (q == null) { driveOut(id, "empty", null, null); return; }
+      if (begin(id, "search", q, null, null)) driveAuth();
+    }
+    @JavascriptInterface public void list(String id, String folderId) {
+      if (!Drive.validId(folderId)) { driveOut(id, "bad_request", null, null); return; }
+      if (begin(id, "list", folderId, null, null)) driveAuth();
+    }
+    @JavascriptInterface public void access(String id, String folderId) {
+      if (!Drive.validId(folderId)) { driveOut(id, "bad_request", null, null); return; }
+      if (begin(id, "access", folderId, null, null)) driveAuth();
+    }
+    @JavascriptInterface public void download(String id, String fileId, String mime) {
+      if (!Drive.validId(fileId) || "root".equals(fileId)) { driveOut(id, "bad_request", null, null); return; }
+      if (begin(id, "dl", fileId, mime, null)) driveAuth();
+    }
+    @JavascriptInterface public void mkdir(String id, String parentId, String name) {
+      String n = Drive.cleanName(name);
+      if (!Drive.validId(parentId) || n == null) { driveOut(id, "bad_request", null, null); return; }
+      if (begin(id, "mkdir", parentId, n, null)) driveAuth();
+    }
+    @JavascriptInterface public void move(String id, String fileId, String fromId, String toId) {
+      if (!Drive.validId(fileId) || "root".equals(fileId) || !Drive.validId(fromId) || !Drive.validId(toId)) { driveOut(id, "bad_request", null, null); return; }
+      if (begin(id, "mv", fileId, fromId, toId)) driveAuth();
+    }
+    @JavascriptInterface public void upload(final String id, final String folderId) {
+      if (!Drive.validId(folderId)) { driveOut(id, "bad_request", null, null); return; }
+      if (!begin(id, "up", folderId, null, null)) return;
       runOnUiThread(new Runnable() { public void run() {
         try {
-          java.util.List<com.google.android.gms.common.api.Scope> sc = new ArrayList<com.google.android.gms.common.api.Scope>();
-          sc.add(new com.google.android.gms.common.api.Scope(Drive.SCOPE));
-          com.google.android.gms.auth.api.identity.AuthorizationRequest rq = com.google.android.gms.auth.api.identity.AuthorizationRequest.builder().setRequestedScopes(sc).build();
-          com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(MainActivity.this).authorize(rq)
-            .addOnSuccessListener(new com.google.android.gms.tasks.OnSuccessListener<com.google.android.gms.auth.api.identity.AuthorizationResult>() {
-              public void onSuccess(com.google.android.gms.auth.api.identity.AuthorizationResult r) {
-                if (r.hasResolution() && r.getPendingIntent() != null) {
-                  try { startIntentSenderForResult(r.getPendingIntent().getIntentSender(), 31, null, 0, 0, 0); }
-                  catch (Throwable e) { driveFinish("auth_failed", null); }
-                } else driveCall(r.getAccessToken());
-              }})
-            .addOnFailureListener(new com.google.android.gms.tasks.OnFailureListener() {
-              public void onFailure(Exception e) { driveFinish("auth_failed", null); }});
-        } catch (Throwable e) { driveFinish("auth_failed", null); }
+          Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+          startActivityForResult(i, 32);
+        } catch (Throwable e) { driveFinish("no_picker", null); }
       }});
     }
     @JavascriptInterface public boolean open(String link) {
@@ -315,32 +333,206 @@ public class MainActivity extends Activity {
       catch (Throwable e) { return false; }
     }
   }
+  private void driveAuth() {
+    runOnUiThread(new Runnable() { public void run() {
+      try {
+        java.util.List<com.google.android.gms.common.api.Scope> sc = new ArrayList<com.google.android.gms.common.api.Scope>();
+        sc.add(new com.google.android.gms.common.api.Scope(Drive.SCOPE));
+        com.google.android.gms.auth.api.identity.AuthorizationRequest rq = com.google.android.gms.auth.api.identity.AuthorizationRequest.builder().setRequestedScopes(sc).build();
+        com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(MainActivity.this).authorize(rq)
+          .addOnSuccessListener(new com.google.android.gms.tasks.OnSuccessListener<com.google.android.gms.auth.api.identity.AuthorizationResult>() {
+            public void onSuccess(com.google.android.gms.auth.api.identity.AuthorizationResult r) {
+              if (r.hasResolution() && r.getPendingIntent() != null) {
+                try { startIntentSenderForResult(r.getPendingIntent().getIntentSender(), 31, null, 0, 0, 0); }
+                catch (Throwable e) { driveFinish("auth_failed", null); }
+              } else driveCall(r.getAccessToken());
+            }})
+          .addOnFailureListener(new com.google.android.gms.tasks.OnFailureListener() {
+            public void onFailure(Exception e) { driveFinish("auth_failed", null); }});
+      } catch (Throwable e) { driveFinish("auth_failed", null); }
+    }});
+  }
+  private static final String DAPI = "https://www.googleapis.com/drive/v3/files";
+  /** Small JSON request. Returns {code, body}. Body capped at 1 MB. */
+  private Object[] driveHttp(String method, String url, String token, String body) throws Exception {
+    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+    try {
+      c.setConnectTimeout(10000); c.setReadTimeout(20000);
+      c.setRequestProperty("Authorization", "Bearer " + token);
+      if ("PATCH".equals(method)) { c.setRequestMethod("POST"); c.setRequestProperty("X-HTTP-Method-Override", "PATCH"); } else c.setRequestMethod(method);
+      if (body != null) {
+        c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        byte[] bb = body.getBytes("UTF-8"); c.setFixedLengthStreamingMode(bb.length);
+        try (java.io.OutputStream o = c.getOutputStream()) { o.write(bb); }
+      }
+      int code = c.getResponseCode();
+      java.io.InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+      java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n, tot = 0;
+      if (in != null) try { while ((n = in.read(buf)) > 0) { tot += n; if (tot > 1000000) break; bo.write(buf, 0, n); } } finally { in.close(); }
+      return new Object[] { code, bo.toString("UTF-8") };
+    } finally { c.disconnect(); }
+  }
+  private static String httpErr(int code) { return code == 401 || code == 403 ? "denied" : code == 404 ? "notfound" : "http_error"; }
   private void driveCall(final String token) {
     if (token == null || token.isEmpty()) { driveFinish("auth_failed", null); return; }
-    final String q = drvTerm;
+    final String op = drvOp, a = drvA, b = drvB, cc = drvC; final android.net.Uri pick = drvUri;
     new Thread(new Runnable() { public void run() {
-      java.net.HttpURLConnection c = null;
       try {
-        String u = "https://www.googleapis.com/drive/v3/files?pageSize=" + Drive.MAX_ITEMS + "&orderBy=modifiedTime%20desc&spaces=drive&fields=" + android.net.Uri.encode("files(name,mimeType,modifiedTime,webViewLink)") + "&q=" + android.net.Uri.encode(q);
-        c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
-        c.setConnectTimeout(10000); c.setReadTimeout(15000);
-        c.setRequestProperty("Authorization", "Bearer " + token);
-        int code = c.getResponseCode();
-        if (code != 200) { driveFinish(code == 401 || code == 403 ? "denied" : "http_error", null); return; }
-        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n; int tot = 0;
-        try (java.io.InputStream in = c.getInputStream()) { while ((n = in.read(buf)) > 0) { tot += n; if (tot > 300000) { driveFinish("too_big", null); return; } bo.write(buf, 0, n); } }
-        driveFinish(null, Drive.parse(bo.toString("UTF-8")));
+        if ("search".equals(op)) {
+          String u = DAPI + "?pageSize=" + Drive.MAX_ITEMS + "&orderBy=modifiedTime%20desc&spaces=drive&fields=" + android.net.Uri.encode("files(id,name,mimeType,size,modifiedTime,shared,driveId,webViewLink)") + "&q=" + android.net.Uri.encode(a);
+          Object[] r = driveHttp("GET", u, token, null);
+          if ((Integer) r[0] != 200) { driveFinish(httpErr((Integer) r[0]), null); return; }
+          driveFinish(null, Drive.parseList((String) r[1]));
+        } else if ("list".equals(op)) {
+          String u = DAPI + "?pageSize=" + Drive.MAX_LIST + "&orderBy=folder,name&spaces=drive&fields=" + android.net.Uri.encode("files(id,name,mimeType,size,modifiedTime,shared,driveId,webViewLink)") + "&q=" + android.net.Uri.encode(Drive.listQuery(a));
+          Object[] r = driveHttp("GET", u, token, null);
+          if ((Integer) r[0] != 200) { driveFinish(httpErr((Integer) r[0]), null); return; }
+          driveFinish(null, Drive.parseList((String) r[1]));
+        } else if ("access".equals(op)) {
+          Object[] r = driveHttp("GET", DAPI + "/" + a + "?supportsAllDrives=true&fields=" + android.net.Uri.encode("id,name,shared,driveId,permissions(type,role)"), token, null);
+          if ((Integer) r[0] != 200) { driveFinish(httpErr((Integer) r[0]), null); return; }
+          JSONObject info = Drive.access((String) r[1]);
+          if ("root".equals(a)) info.put("name", "My Drive");
+          driveDone(null, info);
+        } else if ("dl".equals(op)) { driveDownload(token, a); }
+        else if ("mkdir".equals(op)) {
+          String nm = Drive.uniqueName(b, driveNames(token, b, a));
+          Object[] r = driveHttp("POST", DAPI + "?fields=id,name", token, Drive.createJson(nm, a, true));
+          if ((Integer) r[0] != 200) { driveFinish(httpErr((Integer) r[0]), null); return; }
+          driveDone(null, new JSONObject().put("name", nm).put("renamed", !nm.equals(b)));
+        } else if ("up".equals(op)) { driveUpload(token, a, pick); }
+        else if ("mv".equals(op)) { driveMove(token, a, b, cc); }
+        else driveFinish("bad_request", null);
       } catch (Throwable e) { driveFinish("network", null); }
-      finally { if (c != null) c.disconnect(); }
     }}).start();
   }
-  private void driveFinish(String err, JSONArray items) {
-    String id = drvId; drvBusy = false; drvTerm = null; drvId = null;
-    driveOut(id, err, items);
+  private java.util.Set<String> driveNames(String token, String name, String folder) throws Exception {
+    java.util.Set<String> s = new java.util.HashSet<String>();
+    String base = name; int dot = base.lastIndexOf('.'); String stem = dot > 0 ? base.substring(0, dot) : base;
+    String q = Drive.nameQuery(name, folder);
+    Object[] r = driveHttp("GET", DAPI + "?pageSize=100&fields=files(name)&q=" + android.net.Uri.encode("name contains '" + stem.replace("\\", "\\\\").replace("'", "\\'") + "' and '" + folder + "' in parents and trashed = false"), token, null);
+    if ((Integer) r[0] == 200) { JSONArray f = new JSONObject((String) r[1]).optJSONArray("files"); if (f != null) for (int i = 0; i < f.length(); i++) s.add(f.getJSONObject(i).optString("name")); }
+    return s;
   }
-  private void driveOut(String id, String err, JSONArray items) {
+  private void driveDownload(String token, String fileId) throws Exception {
+    if (android.os.Build.VERSION.SDK_INT < 29) { driveFinish("unsupported_android", null); return; }
+    Object[] m = driveHttp("GET", DAPI + "/" + fileId + "?supportsAllDrives=true&fields=id,name,mimeType,size,driveId", token, null);
+    if ((Integer) m[0] != 200) { driveFinish(httpErr((Integer) m[0]), null); return; }
+    JSONObject mo = new JSONObject((String) m[1]);
+    String mime = mo.optString("mimeType", ""), name = Drive.safeFileName(mo.optString("name", "drive-file"));
+    if (Drive.FOLDER.equals(mime)) { driveFinish("is_folder", null); return; }
+    String url, outMime;
+    if (Drive.isGoogleNative(mime)) {
+      String em = Drive.exportMime(mime);
+      if (em == null) { driveFinish("no_export", null); return; }
+      String ext = Drive.exportExt(mime); if (!name.toLowerCase().endsWith(ext)) name = name + ext;
+      url = DAPI + "/" + fileId + "/export?mimeType=" + android.net.Uri.encode(em); outMime = em;
+    } else {
+      if (mo.optLong("size", 0) > Drive.MAX_BYTES) { driveFinish("too_big", null); return; }
+      url = DAPI + "/" + fileId + "?alt=media&supportsAllDrives=true"; outMime = mime.isEmpty() ? "application/octet-stream" : mime;
+    }
+    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+    android.net.Uri dest = null;
     try {
-      JSONObject o = new JSONObject().put("ok", err == null).put("error", err == null ? "" : err).put("items", items == null ? new JSONArray() : items);
+      c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setRequestProperty("Authorization", "Bearer " + token);
+      int code = c.getResponseCode();
+      if (code != 200) { driveFinish(code == 403 && Drive.isGoogleNative(mime) ? "export_too_big" : httpErr(code), null); return; }
+      android.content.ContentValues cv = new android.content.ContentValues();
+      cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name); cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, outMime);
+      cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+      dest = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+      if (dest == null) { driveFinish("save_failed", null); return; }
+      long tot = 0; byte[] buf = new byte[16384]; int n; boolean big = false;
+      try (java.io.InputStream in = c.getInputStream(); java.io.OutputStream o = getContentResolver().openOutputStream(dest)) {
+        while ((n = in.read(buf)) > 0) { tot += n; if (tot > Drive.MAX_BYTES) { big = true; break; } o.write(buf, 0, n); }
+      }
+      if (big) { getContentResolver().delete(dest, null, null); driveFinish("too_big", null); return; }
+      android.content.ContentValues done = new android.content.ContentValues(); done.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+      getContentResolver().update(dest, done, null, null);
+      driveDone(null, new JSONObject().put("name", name).put("bytes", tot));
+    } catch (Throwable e) {
+      if (dest != null) try { getContentResolver().delete(dest, null, null); } catch (Throwable x) { }
+      driveFinish("network", null);
+    } finally { c.disconnect(); }
+  }
+  private void driveUpload(String token, String folder, android.net.Uri src) throws Exception {
+    if (src == null) { driveFinish("cancelled", null); return; }
+    String name = null; long size = -1;
+    try (android.database.Cursor q = getContentResolver().query(src, new String[] { android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE }, null, null, null)) {
+      if (q != null && q.moveToFirst()) { name = q.getString(0); if (!q.isNull(1)) size = q.getLong(1); }
+    }
+    name = Drive.safeFileName(name);
+    if (size < 0) { driveFinish("size_unknown", null); return; }
+    if (size > Drive.MAX_BYTES) { driveFinish("too_big", null); return; }
+    String finalName = Drive.uniqueName(name, driveNames(token, name, folder));
+    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name").openConnection();
+    String loc;
+    try {
+      c.setRequestMethod("POST"); c.setDoOutput(true); c.setConnectTimeout(10000); c.setReadTimeout(20000);
+      c.setRequestProperty("Authorization", "Bearer " + token); c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+      c.setRequestProperty("X-Upload-Content-Length", String.valueOf(size));
+      byte[] mb = Drive.createJson(finalName, folder, false).getBytes("UTF-8"); c.setFixedLengthStreamingMode(mb.length);
+      try (java.io.OutputStream o = c.getOutputStream()) { o.write(mb); }
+      int code = c.getResponseCode(); loc = c.getHeaderField("Location");
+      if (code != 200 || loc == null || !loc.startsWith("https://www.googleapis.com/upload/")) { driveFinish(httpErr(code), null); return; }
+    } finally { c.disconnect(); }
+    java.net.HttpURLConnection p = (java.net.HttpURLConnection) new java.net.URL(loc).openConnection();
+    try {
+      p.setRequestMethod("PUT"); p.setDoOutput(true); p.setConnectTimeout(10000); p.setReadTimeout(120000);
+      p.setRequestProperty("Authorization", "Bearer " + token); p.setFixedLengthStreamingMode(size);
+      long sent = 0; byte[] buf = new byte[16384]; int n;
+      try (java.io.InputStream in = getContentResolver().openInputStream(src); java.io.OutputStream o = p.getOutputStream()) {
+        while ((n = in.read(buf)) > 0) { sent += n; if (sent > size) break; o.write(buf, 0, n); }
+      }
+      int code = p.getResponseCode();
+      if (code != 200 && code != 201) { driveFinish(httpErr(code), null); return; }
+      driveDone(null, new JSONObject().put("name", finalName).put("renamed", !finalName.equals(name)).put("bytes", size));
+    } finally { p.disconnect(); }
+  }
+  private void driveMove(String token, String fileId, String fromId, String toId) throws Exception {
+    if (fromId.equals(toId)) { driveFinish("same_folder", null); return; }
+    Object[] g = driveHttp("GET", DAPI + "/" + fileId + "?supportsAllDrives=true&fields=id,name,mimeType,parents,driveId", token, null);
+    if ((Integer) g[0] != 200) { driveFinish(httpErr((Integer) g[0]), null); return; }
+    JSONObject fo = new JSONObject((String) g[1]);
+    if (fo.has("driveId")) { driveFinish("unsupported", null); return; }
+    JSONArray ps = fo.optJSONArray("parents");
+    boolean has = false; if (ps != null) for (int i = 0; i < ps.length(); i++) if (fromId.equals(ps.optString(i)) || ("root".equals(fromId) && ps.length() == 1 && !ps.optString(i).isEmpty() && driveIsRoot(token, ps.optString(i)))) has = true;
+    if (!has) { driveFinish("changed", null); return; }
+    String realFrom = ps.optString(0);
+    // a folder must not be moved into itself or one of its own sub-folders
+    if (Drive.FOLDER.equals(fo.optString("mimeType"))) {
+      String cur = toId;
+      for (int k = 0; k < 40 && cur != null && !cur.isEmpty(); k++) {
+        if (cur.equals(fileId)) { driveFinish("cycle", null); return; }
+        Object[] pr = driveHttp("GET", DAPI + "/" + cur + "?supportsAllDrives=true&fields=parents", token, null);
+        if ((Integer) pr[0] != 200) break;
+        JSONArray pp = new JSONObject((String) pr[1]).optJSONArray("parents"); cur = pp == null ? null : pp.optString(0);
+      }
+    }
+    // a file with the same name already in the destination: stop, do not create confusing duplicates
+    String nm = fo.optString("name", "");
+    java.util.Set<String> taken = driveNames(token, Drive.cleanName(nm) == null ? "x" : nm, toId);
+    if (taken.contains(nm)) { driveFinish("exists", null); return; }
+    Object[] r = driveHttp("PATCH", DAPI + "/" + fileId + "?supportsAllDrives=true&addParents=" + toId + "&removeParents=" + realFrom + "&fields=id,name", token, "{}");
+    if ((Integer) r[0] != 200) { driveFinish(httpErr((Integer) r[0]), null); return; }
+    driveDone(null, new JSONObject().put("name", nm));
+  }
+  private boolean driveIsRoot(String token, String id) {
+    try { Object[] r = driveHttp("GET", DAPI + "/root?fields=id", token, null); return (Integer) r[0] == 200 && id.equals(new JSONObject((String) r[1]).optString("id")); } catch (Throwable e) { return false; }
+  }
+  private void driveFinish(String err, JSONArray items) {
+    JSONObject w = null; try { if (items != null) w = new JSONObject().put("list", items); } catch (Exception e) { }
+    driveDone(err, w);
+  }
+  private void driveDone(String err, JSONObject info) {
+    String id = drvId, op = drvOp; drvBusy = false; drvId = null; drvOp = null; drvA = drvB = drvC = null; drvUri = null;
+    driveOut(id, err, info == null ? null : info.optJSONArray("list"), info == null || info.has("list") ? null : info, op);
+  }
+  private void driveOut(String id, String err, JSONArray items, JSONObject info) { driveOut(id, err, items, info, null); }
+  private void driveOut(String id, String err, JSONArray items, JSONObject info, String op) {
+    try {
+      JSONObject o = new JSONObject().put("ok", err == null).put("error", err == null ? "" : err).put("op", op == null ? "" : op).put("items", items == null ? new JSONArray() : items);
+      if (info != null) o.put("info", info);
       final String js = "window.onDriveResult&&window.onDriveResult(" + JSONObject.quote(id == null ? "" : id) + "," + JSONObject.quote(o.toString()) + ")";
       runOnUiThread(new Runnable() { public void run() { if (wv != null) wv.evaluateJavascript(js, null); } });
     } catch (Exception e) { }
@@ -385,6 +577,10 @@ public class MainActivity extends Activity {
       try { if (res == RESULT_OK && data != null) tok = com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(data).getAccessToken(); } catch (Throwable e) { }
       if (tok == null) driveFinish(res == RESULT_OK ? "auth_failed" : "cancelled", null); else driveCall(tok);
       return;
+    }
+    if (req == 32) {
+      if (res != RESULT_OK || data == null || data.getData() == null) { driveFinish("cancelled", null); return; }
+      drvUri = data.getData(); driveAuth(); return;
     }
     if (req != 21) return;
     if (res != RESULT_OK || data == null || data.getData() == null) return;   // cancelled: nothing selected
