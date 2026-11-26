@@ -11,7 +11,7 @@ import org.robolectric.annotation.Config;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34, manifest = Config.NONE)
 public class DriveTest {
-  @Test public void authKeyAllowlist() { assertEquals("auth_c10", Drive.authKey(10)); assertEquals("auth_failed", Drive.authKey(-1)); assertEquals("auth_failed", Drive.authKey(99999)); }
+  @Test public void authKeys() { assertEquals("auth_c10", Drive.authKey(10)); assertEquals("auth_c13", Drive.authKey(13)); assertEquals("auth_failed", Drive.authKey(-1)); assertEquals("auth_p_launch_IllegalStateException", Drive.authPath("launch", new IllegalStateException("secret me@x.com"))); assertFalse(Drive.authPath("start", new RuntimeException("a b")).contains("a b")); }
   @Test public void scopeIsFullDrive() { assertEquals("https://www.googleapis.com/auth/drive", Drive.SCOPE); }
   @Test public void queryEscapesQuotesAndBackslashes() {
     assertEquals("name contains 'it\\'s' and trashed = false", Drive.buildQuery("it's"));
