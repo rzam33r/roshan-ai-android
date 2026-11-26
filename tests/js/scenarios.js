@@ -1,3 +1,4 @@
+window.__TAP_MS=0;
 (function(){
 var res=[];function ok(n,c){res.push('JSTEST '+(c?'PASS':'FAIL')+' '+n);}
 function plan(steps,goal){window.__calls=[];document.getElementById('inp').value=goal||'task';document.getElementById('tbtn').click();
@@ -105,10 +106,20 @@ window.__calls=[];lastb('MOVE HERE').click();drv({ok:true,error:'',op:'access',i
 window.__calls=[];lastb('MOVE').click();ok('confirm MOVE calls bridge with file, from, to',window.__calls.join()==='dmv:file22222|root|fold11111');
 drv({ok:true,error:'',op:'mv',items:[],info:{name:'Plan.docx'}});ok('move result shown, then folder refreshed',/Moved Plan\.docx to Taxes/.test(txt()));
 drv({ok:true,error:'',op:'list',items:[]});
+// move with unknown audience is refused (source unknown, then destination unknown)
+window.__calls=[];lastb('BACK').click();drv({ok:true,error:'',op:'list',items:items});
+b('MOVE')[0].click();window.__calls=[];lastb('OPEN FOLDER').click();drv({ok:true,error:'',op:'list',items:[]});
+window.__calls=[];lastb('MOVE HERE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'unknown',text:'x'}});
+ok('UNKNOWN source: move refused, destination not even read, no bridge move',window.__calls.join()==='daccess:root'&&/cannot tell who can see/.test(txt())&&b('MOVE').filter(function(x){return x.parentNode&&/Move "/.test(x.parentNode.textContent);}).length===0);
+window.__calls=[];lastb('MOVE HERE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.'}});drv({ok:true,error:'',op:'access',items:[],info:{level:'unknown',text:'x'}});
+ok('UNKNOWN destination: move refused, no bridge move',window.__calls.join().indexOf('dmv')<0);
+lastb('CANCEL MOVE').click();drv({ok:true,error:'',op:'list',items:[]});
 // upload and new folder wait for confirm
 window.__calls=[];lastb('UPLOAD HERE').click();ok('UPLOAD HERE checks access first, no upload yet',window.__calls.join()==='daccess:fold11111');
 drv({ok:true,error:'',op:'access',items:[],info:{level:'unknown',text:'Google did not say who can see this folder, so it may be shared.'}});
-ok('upload confirm names folder, warns, says never replaces',/Upload a file from your phone into "Taxes"/.test(txt())&&/may be shared/.test(txt())&&/never replaced/.test(txt())&&window.__calls.join().indexOf('dup')<0);
+ok('UNKNOWN audience: upload refused, no confirm, no bridge call',/cannot tell who can see/.test(txt())&&window.__calls.join().indexOf('dup')<0&&b('CONTINUE').length===0);
+window.__calls=[];lastb('UPLOAD HERE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'shared',text:'Anyone with the link can see this folder.'}});
+ok('upload confirm names folder, shows who can see it, says never replaces',/Upload a file from your phone into "Taxes"/.test(txt())&&/Anyone with the link/.test(txt())&&/never replaced/.test(txt())&&window.__calls.join().indexOf('dup')<0);
 window.__calls=[];lastb('CONTINUE').click();ok('CONTINUE starts the picker upload',window.__calls.join()==='dup:fold11111');
 drv({ok:true,error:'',op:'up',items:[],info:{name:'a (2).pdf',renamed:true,bytes:5}});ok('upload result mentions the new name',/Uploaded a \(2\)\.pdf/.test(txt())&&/new name/.test(txt()));drv({ok:true,error:'',op:'list',items:[]});
 window.__calls=[];lastb('NEW FOLDER').click();var ti=document.querySelector('#log input[type=text]');ti.value='Receipts';lastb('CREATE').click();
@@ -117,6 +128,8 @@ drv({ok:true,error:'',op:'access',items:[],info:{level:'shared',text:'Other peop
 ok('shared parent needs confirm before mkdir',window.__calls.join().indexOf('dmk')<0&&/Create "Receipts" inside "Taxes"/.test(txt()));
 window.__calls=[];lastb('CREATE').click();ok('confirmed mkdir passes name',window.__calls.join()==='dmk:fold11111|Receipts');
 drv({ok:true,error:'',op:'mkdir',items:[],info:{name:'Receipts'}});drv({ok:true,error:'',op:'list',items:[]});
+window.__calls=[];lastb('NEW FOLDER').click();ti=document.querySelector('#log input[type=text]');ti.value='X1';lastb('CREATE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'unknown',text:'x'}});ok('UNKNOWN audience: new folder refused',window.__calls.join().indexOf('dmk')<0&&/cannot tell who can see/.test(txt()));
+window.__calls=[];lastb('NEW FOLDER').click();ti=document.querySelector('#log input[type=text]');ti.value='X2';lastb('CREATE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.'}});ok('PRIVATE parent still asks confirm before mkdir',window.__calls.join().indexOf('dmk')<0&&/Create "X2" inside/.test(txt()));lastb('CANCEL').click();
 // errors are fixed sentences
 window.__calls=[];lastb('UPLOAD HERE').click();drv({ok:false,error:'unsupported',detail:'Secret Drive.xlsx'});ok('error text is generic',/shared drive/.test(txt())&&txt().indexOf('Secret Drive')<0);
 // FILES then Gemini / TASK: only typed words go to the model bridges
@@ -127,11 +140,37 @@ document.getElementById('inp').value='hello there';document.getElementById('send
 document.getElementById('inp').value='plan lunch';document.getElementById('tbtn').click();
 window.onAiResult(window.__aid,true,'ok');var all=sent.join('|');ok('after file manager use, model bridges got only typed words',sent.length===2&&all.indexOf('Taxes')<0&&all.indexOf('Plan.docx')<0&&all.indexOf('Receipts')<0);
 window.AndroidAI=oa;window.AndroidPlan.plan=op;
-// PROMPTS removed, NEW CHAT stays visible and works
+// FOUR main buttons only: FILES, TASK, G DRIVE, SEND. No NEW CHAT, MIC or PROMPTS button.
 var all2=[].slice.call(document.querySelectorAll('button')).map(function(x){return x.textContent;});
+var row=[].slice.call(document.querySelectorAll('#fbtn,#tbtn,#dbtn,#send')).map(function(x){return x.textContent;});
 ok('PROMPTS button is gone, no prompt panel',all2.indexOf('PROMPTS')<0&&!document.getElementById('plib'));
-ok('NEW CHAT, FILE, TASK, G DRIVE, MIC, SEND still present',['NEW CHAT','FILE','TASK','G DRIVE','MIC','SEND'].every(function(n){return all2.indexOf(n)>=0;}));
-window.__calls=[];document.getElementById('pbtn').click();ok('NEW CHAT button resets the conversation',window.__calls.indexOf('reset')>=0);
+ok('main row is exactly FILES, TASK, G DRIVE, SEND',row.join()==='FILES,TASK,G DRIVE,SEND'&&all2.indexOf('NEW CHAT')<0&&all2.indexOf('MIC')<0&&!document.getElementById('pbtn')&&!document.getElementById('mic'));
+// typed reset, local only
+(function(){var sent=[];var oa=window.AndroidAI;
+window.AndroidAI={available:function(){return true;},reset:function(){sent.push('reset');},retry:function(){},ask:function(id,q){sent.push('ask:'+q);}};
+window.__calls=[];document.getElementById('inp').value='new chat';document.getElementById('send').click();
+ok('typed "new chat" resets, nothing goes to Gemini',sent.join()==='reset'&&document.getElementById('inp').value===''&&/New chat started/.test(txt()));
+var inpEl=document.getElementById('inp');inpEl.dispatchEvent(new Event('focus'));inpEl.focus();
+ok('focusing the typing box does not reset',sent.join()==='reset');
+window.AndroidAI=oa;})();
+// SEND: one tap sends once, two quick taps = mic only, draft kept
+(function(){var sent=[],voice=[],timers=[];var oa=window.AndroidAI,ov=window.AndroidVoice;
+window.AndroidAI={available:function(){return true;},reset:function(){},retry:function(){},ask:function(id,q){sent.push(q);window.__aid=id;}};
+window.AndroidVoice={start:function(){voice.push('start');},stop:function(){voice.push('stop');}};
+window.__TAP_MS=300;window.__tapSet=function(f,ms){timers.push(f);return timers.length;};window.__tapClear=function(h){timers[h-1]=null;};
+var s=document.getElementById('send'),i=document.getElementById('inp');
+i.value='my draft';s.click();
+ok('first tap alone sends nothing yet',sent.length===0&&voice.length===0&&i.value==='my draft');
+timers[0]&&timers[0]();
+ok('single tap sends exactly once after the wait',sent.join('|')==='my draft'&&voice.length===0&&i.value==='');window.onAiResult(window.__aid,true,'ok');
+timers.length=0;i.value='keep me';s.click();s.click();
+ok('double tap starts mic, sends nothing, draft kept',sent.length===1&&voice.join()==='start'&&i.value==='keep me'&&s.textContent==='STOP');
+timers.forEach(function(f){if(f)f();});
+ok('timer from a double tap never sends later',sent.length===1);
+s.click();ok('tap while listening stops the mic at once',voice.join()==='start,stop');
+window.onVoiceResult(true,'hello');
+ok('dictation is added to the draft, not replacing it',i.value==='keep me hello'&&s.textContent==='SEND');
+window.__TAP_MS=0;delete window.__tapSet;delete window.__tapClear;window.AndroidAI=oa;window.AndroidVoice=ov;})();
 })();
 res.push('JSTEST DONE');var p=document.createElement('pre');p.id='jsres';p.textContent=res.join('\n');document.body.appendChild(p);
 })();
