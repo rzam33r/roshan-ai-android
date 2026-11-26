@@ -44,5 +44,34 @@ window.__calls=[];document.getElementById('inp').value='y';document.getElementBy
 ok('rejected plan does nothing and offers no confirm',calls().length===0&&btns().filter(function(x){return !x.disabled&&x.textContent==='CONFIRM';}).length===0);
 window.__calls=[];document.getElementById('inp').value='z';document.getElementById('tbtn').click();window.onPlanResult(window.__ps.id,JSON.stringify({failed:'The planner call failed (m): boom'}));
 ok('planner error shown honestly',/Planning failed, so nothing was done/.test(document.getElementById('log').lastChild.textContent));
+// Drive: command routes only to the Drive bridge, results stay local, errors are generic
+window.__calls=[];document.getElementById('inp').value='drive tax invoice';document.getElementById('send').click();
+ok('drive command calls Drive bridge once with the term',window.__calls.join()==='drive:tax invoice');
+window.onDriveResult(window.__drv.id,JSON.stringify({ok:true,error:'',items:[{name:'Invoice 1.pdf',type:'application/pdf',modified:'2026-01-02T03:04:05Z',link:'https://drive.google.com/file/d/1/view'}]}));
+var dopen=[].slice.call(document.querySelectorAll('#log button')).filter(function(x){return x.textContent==='OPEN';}).pop();
+ok('drive result drawn with OPEN',!!dopen&&/Invoice 1\.pdf/.test(document.getElementById('log').textContent));
+window.__calls=[];dopen.click();ok('OPEN passes link to bridge',window.__calls.join()==='dopen:https://drive.google.com/file/d/1/view');
+window.__calls=[];document.getElementById('inp').value='x';document.getElementById('dbtn').click();
+window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'denied',detail:'Secret.pdf'}));
+var lt=document.getElementById('log').lastChild.textContent;ok('drive error is generic, no names',/Google refused Drive access/.test(lt)&&lt.indexOf('Secret')<0);
+window.__calls=[];document.getElementById('inp').value='drive ';document.getElementById('send').click();
+ok('empty drive term does not call bridge',window.__calls.indexOf('drive:')<0);
+document.getElementById('inp').value='';document.getElementById('dbtn').click();ok('DRIVE button with empty box asks for a name',/Type part of a file name/.test(document.getElementById('log').lastChild.textContent));
+// Drive then ordinary Gemini chat, FILE and TASK: nothing shown by Drive may reach the model-bound bridges
+(function(){var sent=[];var oa=window.AndroidAI;
+window.AndroidAI={available:function(){return true;},reset:function(){},retry:function(){},ask:function(id,q){sent.push('ask:'+q);setTimeout(function(){},0);window.__aid=id;}};
+var op=window.AndroidPlan.plan;window.AndroidPlan.plan=function(id,g){sent.push('plan:'+g);window.__ps.id=id;};
+document.getElementById('inp').value='drive Quarterly Payroll';document.getElementById('send').click();
+window.onDriveResult(window.__drv.id,JSON.stringify({ok:true,error:'',items:[{name:'Payroll Secret Q3.xlsx',type:'x',modified:'2026-01-01T00:00:00Z',link:'https://drive.google.com/file/d/9/view'}]}));
+document.getElementById('inp').value='what is the capital of France';document.getElementById('send').click();
+window.onAiResult(window.__aid,true,'Paris');
+document.getElementById('inp').value='plan my week';document.getElementById('tbtn').click();
+document.getElementById('inp').value='drive nothing';document.getElementById('send').click();
+window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'network'}));
+window.__ps.id&&window.onPlanResult&&window.onPlanResult(window.__ps.id,JSON.stringify({ok:false,error:'no_actions'}));
+document.getElementById('inp').value='thanks';document.getElementById('send').click();
+var all=sent.join('|');
+ok('Gemini chat and TASK got only the typed words, no Drive query or file names',sent.length===3&&all.indexOf('Payroll')<0&&all.indexOf('Secret')<0&&all.indexOf('drive')<0&&/ask:what is the capital of France/.test(all)&&/plan:plan my week/.test(all)&&/ask:thanks/.test(all));
+window.AndroidAI=oa;window.AndroidPlan.plan=op;})();
 res.push('JSTEST DONE');var p=document.createElement('pre');p.id='jsres';p.textContent=res.join('\n');document.body.appendChild(p);
 })();
