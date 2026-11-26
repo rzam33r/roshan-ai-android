@@ -31,9 +31,14 @@ public final class Drive {
     return "name contains '" + t.replace("\\", "\\\\").replace("'", "\\'") + "' and trashed = false";
   }
 
-  /** Maps a Google status code to a fixed allowlisted key. Never uses exception text. */
-  public static String authKey(int code) {
-    switch (code) { case 4: case 7: case 8: case 10: case 12: case 16: case 17: case 12500: case 12501: return "auth_c" + code; default: return "auth_failed"; }
+  /** Maps a Google status code to a key made only of digits. Never uses exception text. */
+  public static String authKey(int code) { return code >= 0 && code <= 99999 ? "auth_c" + code : "auth_failed"; }
+  /** Where the sign-in step failed plus the exception class name (letters and digits only, capped). Never message text. */
+  public static String authPath(String where, Throwable t) {
+    String cls = t == null ? "none" : t.getClass().getSimpleName().replaceAll("[^A-Za-z0-9]", "");
+    if (cls.length() > 40) cls = cls.substring(0, 40);
+    if (cls.isEmpty()) cls = "anon";
+    return "auth_p_" + where + "_" + cls;
   }
   public static boolean linkOk(String u) {
     if (u == null || u.length() > 600) return false;
