@@ -281,6 +281,71 @@ public class MainActivity extends Activity {
     }
   }
 
+
+  /** Read-only Drive name search. Needs the user's tap on Google's consent. The token stays in memory for one call. Results go only to the screen: never to Gemini, chat history, the planner or attachments. */
+  private String drvId, drvTerm; private boolean drvBusy; private long drvAt;
+  public class DriveBridge {
+    @JavascriptInterface public boolean available() { return true; }
+    @JavascriptInterface public void search(final String id, final String term) {
+      final String q = Drive.buildQuery(term);
+      if (q == null) { driveOut(id, "empty", null); return; }
+      if (drvBusy && System.currentTimeMillis() - drvAt < 120000) { driveOut(id, "busy", null); return; }
+      drvBusy = true; drvAt = System.currentTimeMillis(); drvId = id; drvTerm = q;
+      runOnUiThread(new Runnable() { public void run() {
+        try {
+          java.util.List<com.google.android.gms.common.api.Scope> sc = new ArrayList<com.google.android.gms.common.api.Scope>();
+          sc.add(new com.google.android.gms.common.api.Scope(Drive.SCOPE));
+          com.google.android.gms.auth.api.identity.AuthorizationRequest rq = com.google.android.gms.auth.api.identity.AuthorizationRequest.builder().setRequestedScopes(sc).build();
+          com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(MainActivity.this).authorize(rq)
+            .addOnSuccessListener(new com.google.android.gms.tasks.OnSuccessListener<com.google.android.gms.auth.api.identity.AuthorizationResult>() {
+              public void onSuccess(com.google.android.gms.auth.api.identity.AuthorizationResult r) {
+                if (r.hasResolution() && r.getPendingIntent() != null) {
+                  try { startIntentSenderForResult(r.getPendingIntent().getIntentSender(), 31, null, 0, 0, 0); }
+                  catch (Throwable e) { driveFinish("auth_failed", null); }
+                } else driveCall(r.getAccessToken());
+              }})
+            .addOnFailureListener(new com.google.android.gms.tasks.OnFailureListener() {
+              public void onFailure(Exception e) { driveFinish("auth_failed", null); }});
+        } catch (Throwable e) { driveFinish("auth_failed", null); }
+      }});
+    }
+    @JavascriptInterface public boolean open(String link) {
+      if (!Drive.linkOk(link)) return false;
+      try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true; }
+      catch (Throwable e) { return false; }
+    }
+  }
+  private void driveCall(final String token) {
+    if (token == null || token.isEmpty()) { driveFinish("auth_failed", null); return; }
+    final String q = drvTerm;
+    new Thread(new Runnable() { public void run() {
+      java.net.HttpURLConnection c = null;
+      try {
+        String u = "https://www.googleapis.com/drive/v3/files?pageSize=" + Drive.MAX_ITEMS + "&orderBy=modifiedTime%20desc&spaces=drive&fields=" + android.net.Uri.encode("files(name,mimeType,modifiedTime,webViewLink)") + "&q=" + android.net.Uri.encode(q);
+        c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
+        c.setConnectTimeout(10000); c.setReadTimeout(15000);
+        c.setRequestProperty("Authorization", "Bearer " + token);
+        int code = c.getResponseCode();
+        if (code != 200) { driveFinish(code == 401 || code == 403 ? "denied" : "http_error", null); return; }
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n; int tot = 0;
+        try (java.io.InputStream in = c.getInputStream()) { while ((n = in.read(buf)) > 0) { tot += n; if (tot > 300000) { driveFinish("too_big", null); return; } bo.write(buf, 0, n); } }
+        driveFinish(null, Drive.parse(bo.toString("UTF-8")));
+      } catch (Throwable e) { driveFinish("network", null); }
+      finally { if (c != null) c.disconnect(); }
+    }}).start();
+  }
+  private void driveFinish(String err, JSONArray items) {
+    String id = drvId; drvBusy = false; drvTerm = null; drvId = null;
+    driveOut(id, err, items);
+  }
+  private void driveOut(String id, String err, JSONArray items) {
+    try {
+      JSONObject o = new JSONObject().put("ok", err == null).put("error", err == null ? "" : err).put("items", items == null ? new JSONArray() : items);
+      final String js = "window.onDriveResult&&window.onDriveResult(" + JSONObject.quote(id == null ? "" : id) + "," + JSONObject.quote(o.toString()) + ")";
+      runOnUiThread(new Runnable() { public void run() { if (wv != null) wv.evaluateJavascript(js, null); } });
+    } catch (Exception e) { }
+  }
+
   public class AttachBridge {
     @JavascriptInterface public void pick() {
       runOnUiThread(new Runnable() { public void run() {
@@ -315,6 +380,12 @@ public class MainActivity extends Activity {
 
   @Override protected void onActivityResult(int req, int res, Intent data) {
     super.onActivityResult(req, res, data);
+    if (req == 31) {
+      String tok = null;
+      try { if (res == RESULT_OK && data != null) tok = com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(data).getAccessToken(); } catch (Throwable e) { }
+      if (tok == null) driveFinish(res == RESULT_OK ? "auth_failed" : "cancelled", null); else driveCall(tok);
+      return;
+    }
     if (req != 21) return;
     if (res != RESULT_OK || data == null || data.getData() == null) return;   // cancelled: nothing selected
     android.net.Uri u = data.getData();
@@ -479,6 +550,7 @@ public class MainActivity extends Activity {
     wv.addJavascriptInterface(new AttachBridge(), "AndroidAttach");
     wv.addJavascriptInterface(new Launcher.Bridge(this), "AndroidApps");
     wv.addJavascriptInterface(new ShareBridge(), "AndroidShare");
+    wv.addJavascriptInterface(new DriveBridge(), "AndroidDrive");
     Sched.ensureChannels(this);
     wv.setBackgroundColor(Color.parseColor("#04070b"));
     setContentView(wv);
