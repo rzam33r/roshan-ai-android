@@ -172,5 +172,8 @@ window.onVoiceResult(true,'hello');
 ok('dictation is added to the draft, not replacing it',i.value==='keep me hello'&&s.textContent==='SEND');
 window.__TAP_MS=0;delete window.__tapSet;delete window.__tapClear;window.AndroidAI=oa;window.AndroidVoice=ov;})();
 })();
+(function(){function txt(){return document.getElementById('log').textContent;}window.__calls=[];document.getElementById('inp').value='';document.getElementById('dbtn').click();window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_c13',items:[]}));ok('auth code is shown as a number only',/failed with code 13/.test(txt()));
+window.__calls=[];document.getElementById('dbtn').click();window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_p_authorize_SomeException',items:[]}));ok('auth step and class name are shown',/step "authorize" \(SomeException\)/.test(txt()));
+window.__calls=[];document.getElementById('dbtn').click();window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_p_x<b>_Y',items:[]}));ok('unknown auth key is not shown raw',txt().indexOf('<b>')<0);})();
 res.push('JSTEST DONE');var p=document.createElement('pre');p.id='jsres';p.textContent=res.join('\n');document.body.appendChild(p);
 })();
