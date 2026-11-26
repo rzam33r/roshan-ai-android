@@ -348,7 +348,9 @@ public class MainActivity extends Activity {
               } else driveCall(r.getAccessToken());
             }})
           .addOnFailureListener(new com.google.android.gms.tasks.OnFailureListener() {
-            public void onFailure(Exception e) { driveFinish("auth_failed", null); }});
+            public void onFailure(Exception e) {
+              int c = (e instanceof com.google.android.gms.common.api.ApiException) ? ((com.google.android.gms.common.api.ApiException) e).getStatusCode() : -1;
+              driveFinish(Drive.authKey(c), null); }});
       } catch (Throwable e) { driveFinish("auth_failed", null); }
     }});
   }
