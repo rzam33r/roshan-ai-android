@@ -748,6 +748,127 @@ public class MainActivity extends Activity {
   private void deliver0(String id, boolean ok, String text) {
     evalJs("window.onAiResult&&window.onAiResult(" + JSONObject.quote(id) + "," + ok + "," + JSONObject.quote(text) + ")");
   }
+
+  // ---- In-app updates from GitHub Releases. The app only reads public release info; it never sends anything about you. ----
+  private volatile JSONObject updInfo; private volatile long updCheckedAt; private volatile boolean updBusy;
+  static final String UPD_ACTION = "com.roshanai.app.INSTALL_STATUS";
+  private int curCode() {
+    try { android.content.pm.PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+      return android.os.Build.VERSION.SDK_INT >= 28 ? (int) pi.getLongVersionCode() : pi.versionCode; } catch (Throwable e) { return Integer.MAX_VALUE; }
+  }
+  public class UpdateBridge {
+    @JavascriptInterface public String current() {
+      try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Throwable e) { return ""; } }
+    @JavascriptInterface public void check() { updateCheck(false); }
+    @JavascriptInterface public void install() { updateInstall(); }
+  }
+  private void updStatus(String state, int pct) { evalJs("window.onUpdateStatus&&window.onUpdateStatus(" + JSONObject.quote(state) + "," + pct + ")"); }
+  private void updateCheck(boolean force) {
+    final long now = System.currentTimeMillis();
+    if (!force && now - updCheckedAt < Update.CHECK_EVERY_MS) {
+      final JSONObject i = updInfo; evalJs("window.onUpdateInfo&&window.onUpdateInfo(" + (i == null ? "null" : JSONObject.quote(i.toString())) + ")"); return; }
+    updCheckedAt = now;
+    new Thread(new Runnable() { public void run() {
+      java.net.HttpURLConnection c = null;
+      try {
+        c = (java.net.HttpURLConnection) new java.net.URL(Update.LATEST).openConnection();
+        c.setConnectTimeout(10000); c.setReadTimeout(15000);
+        c.setRequestProperty("Accept", "application/vnd.github+json"); c.setRequestProperty("User-Agent", "RoshanAI-Android");
+        int code = c.getResponseCode();
+        if (code != 200) { if (code != 404) updCheckedAt = 0; return; }
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n, tot = 0;
+        try (java.io.InputStream in = c.getInputStream()) { while ((n = in.read(buf)) > 0) { tot += n; if (tot > 500000) return; bo.write(buf, 0, n); } }
+        JSONObject i = Update.parseLatest(bo.toString("UTF-8"), curCode());
+        updInfo = i;
+        JSONObject show = i == null ? null : new JSONObject().put("code", i.getInt("code")).put("name", i.getString("name")).put("notes", i.getString("notes")).put("size", i.getLong("size"));
+        evalJs("window.onUpdateInfo&&window.onUpdateInfo(" + (show == null ? "null" : JSONObject.quote(show.toString())) + ")");
+      } catch (Throwable e) { updCheckedAt = 0; }
+      finally { if (c != null) c.disconnect(); }
+    }}).start();
+  }
+  private void updateInstall() {
+    final JSONObject info = updInfo;
+    if (info == null) { updStatus("none", 0); return; }
+    if (updBusy) return;
+    if (android.os.Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+      updStatus("allow", 0);
+      runOnUiThread(new Runnable() { public void run() {
+        try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()))); } catch (Throwable e) { }
+      }});
+      return;
+    }
+    updBusy = true;
+    new Thread(new Runnable() { public void run() {
+      java.io.File f = null;
+      try {
+        java.io.File dir = new java.io.File(getCacheDir(), "updates"); dir.mkdirs();
+        for (java.io.File old : dir.listFiles() == null ? new java.io.File[0] : dir.listFiles()) old.delete();
+        f = new java.io.File(dir, "update.apk");
+        long want = info.getLong("size"); String sha = info.optString("sha", "");
+        String u = info.getString("url"); java.net.HttpURLConnection c = null; int hop = 0;
+        while (true) {
+          if (!Update.downloadOk(u) || hop++ > 5) { updFail("source"); return; }
+          c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
+          c.setInstanceFollowRedirects(false); c.setConnectTimeout(15000); c.setReadTimeout(30000); c.setRequestProperty("User-Agent", "RoshanAI-Android");
+          int code = c.getResponseCode();
+          if (code >= 300 && code < 400) { u = c.getHeaderField("Location"); c.disconnect(); continue; }
+          if (code != 200) { c.disconnect(); updFail("download"); return; }
+          break;
+        }
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        long tot = 0; int last = -1; byte[] buf = new byte[32768]; int n;
+        try (java.io.InputStream in = c.getInputStream(); java.io.OutputStream o = new java.io.FileOutputStream(f)) {
+          while ((n = in.read(buf)) > 0) {
+            tot += n; if (tot > Update.MAX_BYTES || tot > want) { updFail("size"); return; }
+            o.write(buf, 0, n); md.update(buf, 0, n);
+            int pct = (int) (tot * 100 / want); if (pct / 10 != last) { last = pct / 10; updStatus("downloading", pct); }
+          }
+        } finally { c.disconnect(); }
+        if (tot != want) { updFail("download"); return; }
+        if (!sha.isEmpty() && !sha.equals(Update.hex(md.digest()))) { updFail("checksum"); return; }
+        updStatus("verifying", 100);
+        android.content.pm.PackageManager pm = getPackageManager();
+        int flags = android.os.Build.VERSION.SDK_INT >= 28 ? android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES : 0;
+        android.content.pm.PackageInfo ap = pm.getPackageArchiveInfo(f.getPath(), flags);
+        if (ap == null || !Update.PKG.equals(ap.packageName)) { updFail("package"); return; }
+        long apCode = android.os.Build.VERSION.SDK_INT >= 28 ? ap.getLongVersionCode() : ap.versionCode;
+        if (apCode <= curCode()) { updFail("older"); return; }
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+          android.content.pm.PackageInfo me = pm.getPackageInfo(getPackageName(), android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+          if (ap.signingInfo == null || me.signingInfo == null
+              || !java.util.Arrays.equals(ap.signingInfo.getApkContentsSigners(), me.signingInfo.getApkContentsSigners())) { updFail("key"); return; }
+        }
+        android.content.pm.PackageInstaller pi = pm.getPackageInstaller();
+        android.content.pm.PackageInstaller.SessionParams sp = new android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        sp.setAppPackageName(Update.PKG); sp.setSize(tot);
+        int sid = pi.createSession(sp);
+        try (android.content.pm.PackageInstaller.Session ses = pi.openSession(sid)) {
+          try (java.io.InputStream in = new java.io.FileInputStream(f); java.io.OutputStream o = ses.openWrite("base.apk", 0, tot)) {
+            while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
+            ses.fsync(o);
+          }
+          Intent back = new Intent(MainActivity.this, MainActivity.class).setAction(UPD_ACTION).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+          int pf = android.app.PendingIntent.FLAG_UPDATE_CURRENT | (android.os.Build.VERSION.SDK_INT >= 31 ? 0x02000000 /* FLAG_MUTABLE: the installer adds the result */ : 0);
+          ses.commit(android.app.PendingIntent.getActivity(MainActivity.this, 41, back, pf).getIntentSender());
+        }
+        updStatus("installing", 100);
+      } catch (Throwable e) { updFail("error"); }
+      finally { if (f != null) f.delete(); }
+    }}).start();
+  }
+  private void updFail(String why) { updBusy = false; updStatus("failed:" + why, 0); }
+  @Override protected void onNewIntent(Intent i) {
+    super.onNewIntent(i);
+    if (i == null || !UPD_ACTION.equals(i.getAction())) return;
+    int st = i.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
+    if (st == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+      Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
+      if (confirm != null) { try { startActivity(confirm); updStatus("confirm", 100); return; } catch (Throwable e) { } }
+      updFail("installer");
+    } else if (st == android.content.pm.PackageInstaller.STATUS_SUCCESS) { updBusy = false; updStatus("done", 100); }
+    else updFail(st == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED ? "cancelled" : "install" + (st < 0 ? "" : st));
+  }
+  @Override protected void onResume() { super.onResume(); if (wv != null) updateCheck(false); }
   private void evalJs(final String js) { runOnUiThread(new Runnable() { public void run() { wv.evaluateJavascript(js, null); } }); }
 
   @Override protected void onCreate(Bundle b) {
@@ -789,6 +910,7 @@ public class MainActivity extends Activity {
     wv.addJavascriptInterface(new Launcher.Bridge(this), "AndroidApps");
     wv.addJavascriptInterface(new ShareBridge(), "AndroidShare");
     wv.addJavascriptInterface(new DriveBridge(), "AndroidDrive");
+    wv.addJavascriptInterface(new UpdateBridge(), "AndroidUpdate");
     Sched.ensureChannels(this);
     wv.setBackgroundColor(Color.parseColor("#04070b"));
     setContentView(wv);

@@ -162,6 +162,22 @@ var crs=[].slice.call(document.querySelectorAll('#log .fm .fm-path .cr'));
 window.__calls=[];crs[0].click();ok('breadcrumb My Drive lists root',window.__calls.join()==='dlist:root');drv({ok:true,error:'',op:'list',items:it2});
 ok('Drive names and thumbnails never reach the model bridges',window.__thumbs.join().indexOf('Beach')<0);
 window.__calls=[];fold('Taxes').click();drv({ok:true,error:'',op:'list',items:[]});
+// Updates: green light only when a newer release exists; nothing installs without UPDATE NOW
+(function(){var L=document.getElementById('upd');
+ok('page asks for an update check once on load',window.__upd.join()==='check');
+ok('no light when there is no update',getComputedStyle(L).display==='none');
+window.onUpdateInfo(JSON.stringify({code:24,name:'v24 Drive colours',notes:'Folder colours\n<b>bold</b>',size:4400000}));
+ok('green light appears next to the title',getComputedStyle(L).display!=='none'&&L.parentNode.tagName==='H1');
+window.__upd=[];L.click();var lt=document.getElementById('log').lastChild;
+ok('tapping the light shows version, size and notes as plain text, no install yet',/v24 Drive colours/.test(lt.textContent)&&/you have 3\.7/.test(lt.textContent)&&/4\.2 MB/.test(lt.textContent)&&!lt.querySelector('b')&&window.__upd.length===0);
+[].slice.call(lt.querySelectorAll('button')).filter(function(x){return x.textContent==='UPDATE NOW';})[0].click();
+ok('UPDATE NOW starts the install',window.__upd.join()==='install');
+window.onUpdateStatus('downloading',10);var db=document.getElementById('log').lastChild;window.onUpdateStatus('downloading',60);
+ok('download progress updates one line',document.getElementById('log').lastChild===db&&/60%/.test(db.textContent));
+window.onUpdateStatus('failed:key',0);ok('wrong signing key is explained',/different key/.test(document.getElementById('log').lastChild.textContent));
+window.onUpdateStatus('failed:<img>',0);ok('unknown failure code is not shown raw',document.getElementById('log').lastChild.textContent.indexOf('<img>')<0);
+window.onUpdateInfo(null);ok('light goes off when no update',getComputedStyle(L).display==='none');
+window.onUpdateInfo('{bad');ok('bad update info is ignored',getComputedStyle(L).display==='none');})();
 // FILES then Gemini / TASK: only typed words go to the model bridges
 var sent=[];var oa=window.AndroidAI,op=window.AndroidPlan.plan;
 window.AndroidAI={available:function(){return true;},reset:function(){window.__calls.push('reset');},retry:function(){},ask:function(id,q){sent.push('ask:'+q);window.__aid=id;}};

@@ -8,3 +8,5 @@ window.__drv={};window.__thumbs=[];
 function __rec(n){return function(){var a=[].slice.call(arguments);window.__drv.id=a[0];window.__calls.push(n+':'+a.slice(1).join('|'));};}
 window.AndroidDrive={available:function(){return true;},search:function(id,t){window.__calls.push('drive:'+t);window.__drv.id=id;},open:function(l){window.__calls.push('dopen:'+l);return true;},
  list:__rec('dlist'),thumbs:function(g,c){window.__thumbs.push('thumbs:'+g+':'+c);},access:__rec('daccess'),download:__rec('ddl'),mkdir:__rec('dmk'),move:__rec('dmv'),upload:__rec('dup')};
+
+window.__upd=[];window.AndroidUpdate={current:function(){return '3.7';},check:function(){window.__upd.push('check');},install:function(){window.__upd.push('install');}};

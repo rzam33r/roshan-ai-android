@@ -167,12 +167,18 @@
   .fm-act{position:sticky;bottom:0;margin:10px -10px 0;padding:8px 10px 10px;background:rgba(6,10,20,.97);border-top:1px solid rgba(111,242,255,.4);border-radius:0 0 12px 12px;box-shadow:0 -8px 20px rgba(0,0,0,.5)}
   .fm-act .an{font-size:11px;color:#fff;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fm-pad{height:10px}
+  /* ---------- update light next to the title ---------- */
+  #upd{display:none;position:relative;top:-.12em;margin-left:.15em;width:30px;height:30px;vertical-align:middle;border:0;background:none;cursor:pointer;pointer-events:auto;letter-spacing:0;padding:0}
+  #upd.on{display:inline-block}
+  #upd:before{content:"";position:absolute;left:9px;top:9px;width:12px;height:12px;border-radius:50%;background:#39ff88;
+    box-shadow:0 0 6px #39ff88,0 0 16px rgba(57,255,136,.8),0 0 30px rgba(57,255,136,.45);animation:updp 1.8s ease-in-out infinite}
+  @keyframes updp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.8)}}
 </style>
 </head>
 <body>
 <div id="app">
   <header>
-    <h1>ROSHAN AI</h1>
+    <h1>ROSHAN AI<button id="upd" type="button" aria-label="Update available" title="Update available"></button></h1>
     <div class="sub">PERSONAL COMMAND DECK</div>
     <div class="rule"></div>
     <div class="chips"><span>SPIN <b id="chip-spin">240.0°</b></span><span>AXIS <b>LOCK</b></span><span id="chip-cloud" role="button" tabindex="0">AI <b>CLOUD &#9662;</b></span><span class="gfx" id="chip-cmd" role="button" tabindex="0">/command &#9662;</span></div>
@@ -1103,6 +1109,33 @@ function runDrive(term){
       if(it.link)r.appendChild(mkBtn('OPEN',function(){if(!window.AndroidDrive.open(it.link))bubble('ai','Could not open that file.');}));
       if(!it.folder)r.appendChild(mkBtn('DOWNLOAD',function(){downloadIt(it);}));
       b.appendChild(r);});log.scrollTop=log.scrollHeight;});}
+/* UPDATES: a green light next to the title when a newer signed release is on GitHub. Tap it to see what is new and install. */
+var updI=null,updB=null;
+function updText(st,p){
+  if(st==='downloading')return 'Downloading update... '+p+'%';
+  if(st==='verifying')return 'Checking the download is a genuine Roshan AI update...';
+  if(st==='installing')return 'Handing the update to Android...';
+  if(st==='confirm')return 'Android is asking you to confirm the update. Tap Update on that screen.';
+  if(st==='allow')return 'Android needs your OK once: allow "Install unknown apps" for Roshan AI on the screen that opened, then come back and tap the green light again.';
+  if(st==='none')return 'No update is waiting right now.';
+  if(st==='done')return 'Updated.';
+  var w=(st.split(':')[1]||'');
+  var M={source:'The download link was not from this app\'s GitHub releases, so nothing was installed.',download:'The download did not finish. Nothing was installed. Tap the light to try again.',size:'The download size did not match the release, so nothing was installed.',checksum:'The download did not match its checksum, so nothing was installed.',package:'That file is not a Roshan AI app, so nothing was installed.',older:'That release is not newer than this app, so nothing was installed.',key:'That update is signed with a different key than this app, so Android would refuse it. Nothing was installed.',cancelled:'Update cancelled. Nothing changed.',installer:'Android did not open its install screen. Nothing changed.'};
+  return M[w]||('The update did not install ('+w.replace(/[^a-z0-9]/g,'')+'). Nothing changed.');}
+window.onUpdateInfo=function(js){var o=null;try{o=js?JSON.parse(js):null;}catch(e){o=null;}
+  updI=(o&&typeof o.code==='number')?o:null;document.getElementById('upd').classList.toggle('on',!!updI);};
+window.onUpdateStatus=function(st,p){st=String(st);var t=updText(st,p|0);
+  if(st==='downloading'&&updB&&updB.parentNode){updB.textContent=t;return;}
+  updB=bubble(st.indexOf('failed')===0?'ai':'ai note',t);};
+document.getElementById('upd').addEventListener('click',function(){
+  if(!updI||!window.AndroidUpdate)return;
+  var cur='';try{cur=window.AndroidUpdate.current();}catch(e){}
+  var b=bubble('ai','Update available: '+updI.name+(cur?' (you have '+cur+')':'')+', '+fmtSize(updI.size)+'.'+(updI.notes?'\nWhat\'s new:\n'+updI.notes:'')+'\nAndroid will ask you to confirm before installing.');
+  var row=document.createElement('div');
+  row.appendChild(mkBtn('UPDATE NOW',function(){row.remove();updB=null;try{window.AndroidUpdate.install();}catch(e){}}));
+  row.appendChild(mkBtn('LATER',function(){b.remove();}));
+  b.appendChild(row);log.scrollTop=log.scrollHeight;});
+try{if(window.AndroidUpdate)window.AndroidUpdate.check();}catch(e){}
 document.getElementById('dbtn').addEventListener('click',function(){var t=inp.value.trim();if(aiBusy){bubble('ai note','Wait for the current reply first.');return;}
   if(t){bubble('me','[files] '+t);inp.value='';}runDrive(t);});
 var menuEl=document.getElementById('menu');
