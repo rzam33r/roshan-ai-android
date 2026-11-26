@@ -8,7 +8,7 @@ androidx.collection:collection:1.0.0:jar:9c8d117b5c2bc120a1cdfeb857e05b495b16c36
 androidx.concurrent:concurrent-futures-ktx:1.3.0:jar:8de3069a4602d487b63ba061c7d46c78739e7ae5bf3dfd14bfbb9ae80277b1d9
 androidx.concurrent:concurrent-futures:1.1.0:jar:0ce067c514a0d1049d1bebdf709e344ed3266fe9744275682937cdcb13334e9e
 androidx.core:core-ktx:1.13.1:aar:19ba50d094c7368ede1b4ccf1195ceb83e35970736593f823e5af716f8d05d70
-androidx.core:core:1.1.0:aar:76c7cfbe596fe3c09a6983bf1c89e889299c08ac9a3b52ce5182a088d056647e
+androidx.core:core:1.13.1:aar:2c27de199535675005553066597a4b20fa1eea7c228ab4ef6b32b5fe39ca1f59
 androidx.customview:customview:1.0.0:aar:20e5b8f6526a34595a604f56718da81167c0b40a7a94a57daa355663f2594df2
 androidx.datastore:datastore-preferences-android:1.1.7:aar:1b3d703abc765b60517334b04c5b520e6e25168a2f2d73d5b0cd975d20054f8d
 androidx.datastore:datastore-preferences:1.1.7:aar:777b4f448e970f464c30c2d46327c7d3e5c9856faa6413d4ec9d3c2d31c6d533
@@ -23,8 +23,8 @@ androidx.savedstate:savedstate:1.0.0:aar:2510a5619c37579c9ce1a04574faaf323cd0ffe
 androidx.versionedparcelable:versionedparcelable:1.1.0:aar:9a1d77140ac222b7866b5054ee7d159bc1800987ed2d46dd6afdd145abb710c1
 androidx.viewpager:viewpager:1.0.0:aar:147af4e14a1984010d8f155e5e19d781f03c1d70dfed02a8e0d18428b8fc8682
 com.google.android.gms:play-services-base:18.9.0:aar:a071d2f2b09a81182db7b10fe62f5ce24ec8646529400ff1423f9be1178c2cb5
-com.google.android.gms:play-services-basement:18.4.0:aar:ce5c936fd66814b3602f5c6a5e929911ff973d4b05f6de9996da596bef97cad2
-com.google.android.gms:play-services-tasks:18.2.0:aar:7f2aaa8f502068eaf54356ca92aec04271d6e7c416c52c45c0d23440fcbd1654
+com.google.android.gms:play-services-basement:18.9.0:aar:c6ed7236b1b3ce0296b508a5c0a09108fd52d83559d35cad2639505cd04ab255
+com.google.android.gms:play-services-tasks:18.4.0:aar:e3f7666ca0532142ab7c0c3f4e2dbf34113d590c3542845ce03ce79ea6b83d29
 com.google.android.play:integrity:1.4.0:aar:ff7e20440519c289ddb4ce063ddc0003c3fe73ac202de80254d4bfbafae12448
 com.google.errorprone:error_prone_annotations:2.26.0:jar:53cdfc0beb2d766fe03b78f0b11d020554cd419879d20380c38fa1dcf2ba1b50
 com.google.firebase:firebase-ai-ondevice-interop:16.0.0-beta08:aar:aa7e54000f61bb71f88ab6dd2d6bb6dc931e05895be10c647fb681d567134761
