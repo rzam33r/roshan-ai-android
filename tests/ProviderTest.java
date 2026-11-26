@@ -70,10 +70,10 @@ public class ProviderTest {
     ((java.util.HashMap<String, Object>) cf.get(null)).put(Sharer.AUTHORITY, strat);
   }
   private SafeShareProvider provider() throws Exception {
-    primeStrategyFromRealXml();
     ProviderInfo pi = info(false, true);
     Shadows.shadowOf(app().getPackageManager()).addOrUpdateProvider(pi);
-    SafeShareProvider sp = new SafeShareProvider(); sp.attachInfo(app(), pi); return sp;
+    SafeShareProvider sp = new SafeShareProvider(); sp.attachInfo(app(), pi);
+    primeStrategyFromRealXml(); /* newer androidx clears the strategy cache in attachInfo, so prime after it */ return sp;
   }
   private File shared(String name, String content) throws Exception {
     File d = Sharer.dir(app()); d.mkdirs(); File f = new File(d, name);
