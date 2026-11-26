@@ -112,18 +112,11 @@
   #dash{pointer-events:auto; touch-action:none}
   header{pointer-events:none}
   #chat,#log{pointer-events:none}
-  #log .msg,#bar,#att,#plib{pointer-events:auto}
+  #log .msg,#bar,#att{pointer-events:auto}
   /* composer: full-width typing field on top, four buttons in their own row below */
   #bar{flex-wrap:wrap; gap:8px}
   #inp{flex:1 1 100%; order:0; width:100%}
   #pbtn,#fbtn,#tbtn,#dbtn,#mic,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
-#plib{display:none;max-height:42vh;overflow:auto;border-top:1px solid #1d6;padding:8px;background:rgba(0,0,0,.82)}
-#plib.on{display:block}
-#plib h4{margin:6px 0 4px;font-size:11px;letter-spacing:1px;color:#7fe}
-#plib .pi{display:block;width:100%;text-align:left;margin:3px 0;padding:8px;border:1px solid #2a6;background:#0a1a14;color:#cfe;font:12px monospace;border-radius:4px}
-#plib .pi b{display:block;color:#fff}#plib .pi i{font-style:normal;opacity:.75}
-#plib .pi[disabled]{opacity:.5;border-style:dashed}
-#plib .note{font-size:11px;opacity:.8;margin:2px 0 6px}
 </style>
 </head>
 <body>
@@ -163,13 +156,12 @@
     <div id="log"></div>
     <div id="att"><div class="row"><img id="att-th" alt="" style="display:none"><div class="nm" id="att-nm"></div><button class="x" id="att-x" type="button">REMOVE</button></div>
       <div class="warn">This file will go to Google's free Gemini service when you press SEND. It may be used to improve Google products or be reviewed by people. Don't attach confidential or sensitive files. Nothing is sent until you press SEND.</div></div>
-    <div id="plib"></div>
     <div id="bar">
       <input id="inp" type="text" placeholder="Type a command…" autocomplete="off" enterkeyhint="send">
-      <button id="pbtn" type="button">PROMPTS</button>
+      <button id="pbtn" type="button">NEW CHAT</button>
       <button id="fbtn" type="button">FILE</button>
       <button id="tbtn" type="button">TASK</button>
-      <button id="dbtn" type="button">DRIVE</button>
+      <button id="dbtn" type="button">G DRIVE</button>
       <button id="mic" type="button">MIC</button>
       <button id="send" type="button">SEND</button>
     </div>
@@ -909,28 +901,97 @@ function execPlan(o){
 document.getElementById('tbtn').addEventListener('click',function(){var t=inp.value.trim();if(aiBusy){bubble('ai note','Wait for the current reply first.');return;}
   if(t){bubble('me','[task] '+t);inp.value='';}runTask(t);});
 
-/* Drive: read-only file-name search. Results are drawn here only. They are never sent to Gemini, the planner or the chat memory. */
-var DRIVE_ERR={empty:'Type part of a file name first. Example: drive invoice',busy:'Still searching Drive.',cancelled:'Drive access was not allowed, so nothing was searched.',auth_failed:'Google sign-in for Drive did not complete, so nothing was searched.',denied:'Google refused Drive access. Try again and allow it, or the sign-in may have expired.',http_error:'Drive search failed.',network:'Could not reach Drive. Check the connection.',too_big:'Drive returned too much data, so I did not use it.'};
-var driveBusy=false;
+/* FILES: Google Drive file manager. Names and results are drawn on screen only. They are never sent to Gemini, the planner or the chat memory. The app has no delete, trash or sharing calls. */
+var DRIVE_ERR={empty:'Type part of a file name first. Example: drive invoice',busy:'Drive is still working on the last step.',cancelled:'Nothing was changed: the step was cancelled.',auth_failed:'Google sign-in for Drive did not complete, so nothing was changed.',denied:'Google refused Drive access. Nothing was changed.',notfound:'That item was not found. It may have been moved or removed.',http_error:'Drive could not do that right now. Nothing was changed.',network:'The connection failed. Nothing was changed or the file was not finished.',too_big:'That file is too big for this app (limit 200 MB).',export_too_big:'Google cannot export that document: Google Docs, Sheets and Slides exports are limited to 10 MB.',no_export:'This type of Google file cannot be downloaded as a file.',is_folder:'Folders cannot be downloaded. Open it and download the files inside.',unsupported_android:'Downloading needs Android 10 or newer.',save_failed:'The phone would not save the file.',unsupported:'That item is in a shared drive, which this app does not change.',exists:'A file with that name is already in the destination, so nothing was moved.',changed:'The file is no longer in that folder, so nothing was moved. Refresh and try again.',cycle:'A folder cannot be moved into itself.',same_folder:'It is already in that folder.',no_picker:'The phone has no file picker.',size_unknown:'The phone did not report that file size, so it was not uploaded.',bad_request:'That request was not valid.'};
+var driveBusy=false,fm={stack:[{id:'root',name:'My Drive'}],mv:null,panel:null};
 function fmtMod(m){return m?m.slice(0,10):'';}
-function runDrive(term){
-  if(!(window.AndroidDrive&&window.AndroidDrive.search)){bubble('ai','Drive search is not available in this build.');return;}
-  if(driveBusy){bubble('ai note','Still searching Drive.');return;}
-  if(!term){bubble('ai',DRIVE_ERR.empty);return;}
-  driveBusy=true;var id='d'+Date.now(),dots=bubble('ai','Searching Drive file names...');
-  var to=setTimeout(function(){if(driveBusy){driveBusy=false;dots.remove();bubble('ai','Drive search timed out.');}},120000);
+function fmtSize(n){if(n==null||n<0)return '';return n<1024?n+' B':n<1048576?Math.round(n/1024)+' KB':(n/1048576).toFixed(1)+' MB';}
+var BTN='background:rgba(87,200,255,.12);border:1px solid rgba(87,200,255,.5);color:#bfeaff;border-radius:8px;padding:3px 10px;margin:2px 3px 2px 0;font:inherit;font-size:11px;cursor:pointer';
+function mkBtn(label,fn){var b=document.createElement('button');b.type='button';b.textContent=label;b.style.cssText=BTN;b.addEventListener('click',fn);return b;}
+/* One Drive step at a time. start(id) calls the bridge; cb gets the parsed result. */
+function dstep(label,start,cb){
+  if(!(window.AndroidDrive&&window.AndroidDrive.list)){bubble('ai','Drive is not available in this build.');return;}
+  if(driveBusy){bubble('ai note',DRIVE_ERR.busy);return;}
+  driveBusy=true;var id='d'+Date.now()+Math.random().toString(36).slice(2,6),dots=bubble('ai',label);
+  var to=setTimeout(function(){if(driveBusy){driveBusy=false;dots.remove();bubble('ai','Drive timed out. Check the Drive step before trying again.');}},300000);
   window.onDriveResult=function(rid,js){if(rid!==id||!driveBusy)return;clearTimeout(to);driveBusy=false;dots.remove();
-    var o;try{o=JSON.parse(js);}catch(e){bubble('ai','Drive search failed.');return;}
-    if(!o.ok){bubble('ai',DRIVE_ERR[o.error]||'Drive search failed.');return;}
+    var o;try{o=JSON.parse(js);}catch(e){bubble('ai','Drive failed.');return;}
+    if(!o.ok){bubble('ai',DRIVE_ERR[o.error]||'Drive failed.');return;}
+    cb(o);};
+  start(id);}
+function askConfirm(text,okLabel,onOk){
+  var b=bubble('ai',text),row=document.createElement('div');
+  row.appendChild(mkBtn(okLabel,function(){b.remove();onOk();}));
+  row.appendChild(mkBtn('CANCEL',function(){b.remove();bubble('ai note','Cancelled. Nothing was changed.');}));
+  b.appendChild(row);log.scrollTop=log.scrollHeight;}
+function curF(){return fm.stack[fm.stack.length-1];}
+function openFolder(){
+  var cf=curF();
+  dstep('Opening '+cf.name+'...',function(id){window.AndroidDrive.list(id,cf.id);},function(o){drawFolder(o.items);});}
+function drawFolder(items){
+  if(fm.panel)fm.panel.remove();
+  var cf=curF(),path=fm.stack.map(function(x){return x.name;}).join(' / ');
+  var b=bubble('ai','Drive: '+path+(items.length?'':'  (empty)'));fm.panel=b;
+  var top=document.createElement('div');
+  if(fm.stack.length>1)top.appendChild(mkBtn('BACK',function(){fm.stack.pop();openFolder();}));
+  top.appendChild(mkBtn('UPLOAD HERE',function(){uploadHere();}));
+  top.appendChild(mkBtn('NEW FOLDER',function(){newFolder();}));
+  top.appendChild(mkBtn('CLOSE',function(){b.remove();fm.panel=null;fm.mv=null;}));
+  b.appendChild(top);
+  if(fm.mv){var mvr=document.createElement('div');mvr.textContent='Moving: '+fm.mv.name+'  ';
+    mvr.appendChild(mkBtn('MOVE HERE',function(){moveHere();}));mvr.appendChild(mkBtn('CANCEL MOVE',function(){fm.mv=null;openFolder();}));b.appendChild(mvr);}
+  items.forEach(function(it){var r=document.createElement('div');
+    r.textContent=(it.folder?'[folder] ':'')+it.name+(it.folder?'':'  '+fmtSize(it.size))+(it.modified?'  ('+fmtMod(it.modified)+')':'')+'  ';
+    if(it.folder){r.appendChild(mkBtn('OPEN FOLDER',function(){fm.stack.push({id:it.id,name:it.name});openFolder();}));}
+    else{
+      r.appendChild(mkBtn('DOWNLOAD',function(){downloadIt(it);}));
+      r.appendChild(mkBtn('MOVE',function(){fm.mv={id:it.id,name:it.name,from:cf.id,fromName:cf.name};drawFolder(items);bubble('ai note','Now open the destination folder and tap MOVE HERE.');}));
+      if(it.link)r.appendChild(mkBtn('VIEW',function(){if(!window.AndroidDrive.open(it.link))bubble('ai','Could not open that file.');}));}
+    b.appendChild(r);});
+  log.scrollTop=log.scrollHeight;}
+function downloadIt(it){
+  var nat=/^application\/vnd\.google-apps\./.test(it.type);
+  dstep('Downloading '+it.name+'...',function(id){window.AndroidDrive.download(id,it.id,it.type);},function(o){
+    bubble('ai','Saved '+((o.info&&o.info.name)||it.name)+' to your phone Downloads folder.'+(nat?' Google files are saved as Office files (docx, xlsx, pptx) or PDF.':''));});}
+/* Access check, then explicit confirmation. The check only reads who can see a folder. */
+function checkAccess(fid,cb){dstep('Checking who can see this folder...',function(id){window.AndroidDrive.access(id,fid);},function(o){cb(o.info||{level:'unknown',text:'Could not check who can see it.',name:''});});}
+function accessNote(a){return a.level==='private'?'Only you can see it.':a.level==='unsupported'?a.text:a.text+' Anyone who can see it will see what you put there.';}
+function uploadHere(){
+  var cf=curF();
+  checkAccess(cf.id,function(a){
+    if(a.level==='unsupported'){bubble('ai',a.text);return;}
+    askConfirm('Upload a file from your phone into "'+cf.name+'"? '+accessNote(a)+' You choose the file next. An existing file with the same name is never replaced.','CONTINUE',function(){
+      dstep('Uploading...',function(id){window.AndroidDrive.upload(id,cf.id);},function(o){
+        var n=(o.info&&o.info.name)||'file';bubble('ai','Uploaded '+n+' to '+cf.name+'.'+(o.info&&o.info.renamed?' A file with that name existed, so this one was saved with a new name.':''));openFolder();});});});}
+function newFolder(){
+  var cf=curF(),b=bubble('ai','New folder inside "'+cf.name+'". Folder name:'),row=document.createElement('div');
+  var t=document.createElement('input');t.type='text';t.maxLength=120;t.style.cssText='width:60%;margin-right:6px;font:inherit;padding:4px';row.appendChild(t);
+  row.appendChild(mkBtn('CREATE',function(){var nm=t.value.trim();if(!nm){return;}b.remove();
+    checkAccess(cf.id,function(a){
+      if(a.level==='unsupported'){bubble('ai',a.text);return;}
+      var go=function(){dstep('Creating folder...',function(id){window.AndroidDrive.mkdir(id,cf.id,nm);},function(o){bubble('ai','Created folder '+((o.info&&o.info.name)||nm)+'.');openFolder();});};
+      if(a.level==='private')go();else askConfirm('Create "'+nm+'" inside "'+cf.name+'"? '+accessNote(a),'CREATE',go);});}));
+  row.appendChild(mkBtn('CANCEL',function(){b.remove();}));b.appendChild(row);t.focus();}
+function moveHere(){
+  var m=fm.mv,cf=curF();if(!m)return;
+  if(m.from===cf.id){bubble('ai note','That file is already in this folder.');return;}
+  checkAccess(m.from,function(src){checkAccess(cf.id,function(dst){
+    if(dst.level==='unsupported'||src.level==='unsupported'){bubble('ai',(dst.level==='unsupported'?dst:src).text);return;}
+    var t='Move "'+m.name+'" from "'+m.fromName+'" to "'+cf.name+'"? '+'Now in "'+m.fromName+'": '+accessNote(src)+' Into "'+cf.name+'": '+accessNote(dst)+(src.level===dst.level&&dst.level==='private'?'':' Who can see the file may change.')+' Nothing is copied or deleted: the file just changes folder.';
+    askConfirm(t,'MOVE',function(){
+      dstep('Moving...',function(id){window.AndroidDrive.move(id,m.id,m.from,cf.id);},function(o){fm.mv=null;bubble('ai','Moved '+m.name+' to '+cf.name+'.');openFolder();});});});});}
+function runDrive(term){
+  if(!(window.AndroidDrive&&window.AndroidDrive.search)){bubble('ai','Drive is not available in this build.');return;}
+  if(!term){fm.stack=[{id:'root',name:'My Drive'}];fm.mv=null;openFolder();return;}
+  dstep('Searching Drive file names...',function(id){window.AndroidDrive.search(id,term);},function(o){
     if(!o.items.length){bubble('ai','No Drive files with that in the name.');return;}
-    var b=bubble('ai','Drive files matching the name (newest first). Only names are searched, not contents:');
-    o.items.forEach(function(it){var r=document.createElement('div');r.className='msg ai';r.textContent=it.name+(it.modified?'  ('+fmtMod(it.modified)+')':'');
-      var ob=document.createElement('button');ob.type='button';ob.textContent='OPEN';ob.style.cssText='margin-left:8px;background:rgba(87,200,255,.12);border:1px solid rgba(87,200,255,.5);color:#bfeaff;border-radius:8px;padding:3px 10px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer';
-      ob.addEventListener('click',function(){if(!window.AndroidDrive.open(it.link))bubble('ai','Could not open that file.');});
-      r.appendChild(ob);log.appendChild(r);});log.scrollTop=log.scrollHeight;};
-  window.AndroidDrive.search(id,term);}
+    var b=bubble('ai','Drive items matching the name (newest first). Only names are searched, not contents:');
+    o.items.forEach(function(it){var r=document.createElement('div');r.textContent=it.name+(it.modified?'  ('+fmtMod(it.modified)+')':'')+'  ';
+      if(it.link)r.appendChild(mkBtn('OPEN',function(){if(!window.AndroidDrive.open(it.link))bubble('ai','Could not open that file.');}));
+      if(!it.folder)r.appendChild(mkBtn('DOWNLOAD',function(){downloadIt(it);}));
+      b.appendChild(r);});log.scrollTop=log.scrollHeight;});}
 document.getElementById('dbtn').addEventListener('click',function(){var t=inp.value.trim();if(aiBusy){bubble('ai note','Wait for the current reply first.');return;}
-  if(t){bubble('me','[drive] '+t);inp.value='';}runDrive(t);});
+  if(t){bubble('me','[files] '+t);inp.value='';}runDrive(t);});
 function send(){
   var t=inp.value.trim();
   if(attOn){
@@ -967,50 +1028,7 @@ inp.addEventListener('keydown',function(e){if(e.key==='Enter')send();});
 
 })();
 
-(function(){
-var L=[
-['Writing',[
-['Rewrite clearer','Rewrite the text below so it is clearer and shorter. Keep my meaning and tone:\n'],
-['Polish only','Fix grammar and spelling in the text below. Change nothing else:\n'],
-['Make it formal','Rewrite the text below in a formal, polite tone:\n'],
-['Make it friendly','Rewrite the text below in a warm, friendly tone:\n'],
-['Summarize','Summarize the text below in 5 bullet points:\n'],
-['Key points + actions','List the key points and any action items in the text below:\n'],
-['Draft a reply','Draft a short, polite reply to this message. Ask me if you need details:\n']]],
-['Thinking',[
-['Explain simply','Explain this simply, as if to a beginner, with one example: '],
-['Step by step','Walk me through this step by step: '],
-['Pros and cons','Give the pros and cons of this, then a recommendation: '],
-['Compare options','Compare these options in a short table and say which fits me best: '],
-['Plan it','Make a simple plan with steps and rough timings for: '],
-['Check my reasoning','Find mistakes or gaps in my reasoning below:\n'],
-['Ask me questions','Before answering, ask me up to 3 questions you need answered. Topic: ']]],
-['Learning',[
-['Quiz me','Quiz me with 5 questions on this topic, one at a time, and mark my answers: '],
-['Study notes','Turn the text below into short study notes:\n'],
-['Define terms','Define the key terms in the text below in plain words:\n'],
-['Translate','Translate the text below into English (or tell me the target language):\n']]],
-['Work',[
-['Meeting agenda','Write a meeting agenda with timings for: '],
-['Email subject lines','Suggest 5 clear subject lines for this email:\n'],
-['Checklist','Make a checklist for: '],
-['Idea list','Give me 10 ideas for: ']]],
-['With a file',[
-['Describe image','Describe what is in the attached image.'],
-['Read the document','Summarize the attached document and list its key points.'],
-['Extract details','Pull out names, dates and amounts from the attached file.']]]
-];
-var box=document.getElementById('plib'),inp=document.getElementById('inp');
-var h='<button type="button" class="pi" id="newchat"><b>NEW CHAT</b><i>Clears this conversation and the AI memory of it.</i></button><div class="note">Tap one to put it in the message box. Nothing is sent until you press SEND. Prompts are plain text written for this app.</div>';
-L.forEach(function(g,gi){h+='<h4>'+g[0].toUpperCase()+'</h4>';g[1].forEach(function(it,ii){
- h+='<button type="button" class="pi" data-g="'+gi+'" data-i="'+ii+'"><b>'+it[0]+'</b></button>';});});
-h+='<h4>NOT AVAILABLE</h4><button type="button" class="pi" disabled><b>UPSCALE100x</b><i>Disabled. It is a word some people share online as a "magic" image-quality trick. It is not an official feature, and this app cannot create or upscale images. It would do nothing here.</i></button>';
-box.innerHTML=h;
-box.addEventListener('click',function(e){var b=e.target.closest('.pi');if(!b||b.disabled)return;
- var it=L[+b.dataset.g][1][+b.dataset.i];inp.value=it[1];box.classList.remove('on');inp.focus();});
-document.getElementById('newchat').addEventListener('click',function(){box.classList.remove('on');newChat();});
-document.getElementById('pbtn').addEventListener('click',function(){box.classList.toggle('on');});
-})();
+document.getElementById('pbtn').addEventListener('click',function(){newChat();});
 </script>
 </body>
 </html>
