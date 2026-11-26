@@ -98,6 +98,8 @@
     padding:0 12px; font:inherit; font-size:12px; letter-spacing:.12em; cursor:pointer;
     text-shadow:0 0 8px rgba(111,242,255,.7)}
   #send:active{transform:scale(.96)}
+  #tbtn{background:rgba(87,255,176,.12);border:1px solid rgba(87,255,176,.5);color:#bfffe0;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
+  .plan{margin-top:6px;padding-left:16px}
   #mic{background:rgba(183,140,255,.14);border:1px solid rgba(183,140,255,.5);color:#d9c2ff;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
   #mic.on{background:rgba(255,90,120,.25);border-color:#ff5a78;color:#ffd5dc}
   .msg{white-space:pre-wrap}
@@ -113,7 +115,7 @@
   /* composer: full-width typing field on top, four buttons in their own row below */
   #bar{flex-wrap:wrap; gap:8px}
   #inp{flex:1 1 100%; order:0; width:100%}
-  #pbtn,#fbtn,#mic,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
+  #pbtn,#fbtn,#tbtn,#mic,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
 #plib{display:none;max-height:42vh;overflow:auto;border-top:1px solid #1d6;padding:8px;background:rgba(0,0,0,.82)}
 #plib.on{display:block}
 #plib h4{margin:6px 0 4px;font-size:11px;letter-spacing:1px;color:#7fe}
@@ -165,6 +167,7 @@
       <input id="inp" type="text" placeholder="Type a command…" autocomplete="off" enterkeyhint="send">
       <button id="pbtn" type="button">PROMPTS</button>
       <button id="fbtn" type="button">FILE</button>
+      <button id="tbtn" type="button">TASK</button>
       <button id="mic" type="button">MIC</button>
       <button id="send" type="button">SEND</button>
     </div>
@@ -847,9 +850,62 @@ function aiAsk(q){
   window.AndroidAI.ask(id,q);}
 function newChat(){
   if(window.AndroidAI&&window.AndroidAI.reset)window.AndroidAI.reset();
-  window.onAiResult=null;aiDone();attClear(false);log.innerHTML='';
+  window.onAiResult=null;window.onPlanResult=null;taskDrop();aiDone();attClear(false);log.innerHTML='';
   bubble('ai','New chat started. The AI has forgotten this conversation and any attached file.');}
 window.newChat=newChat;
+
+/* Task mode: Gemini proposes phone actions, the app validates them, shows the plan, and runs it only after one tap on CONFIRM. */
+var TASK_ERR={no_actions:'I could not turn that into phone actions I support.',too_many_steps:'The plan had too many steps, so I did not use it.',bad_call:'The plan was malformed, so I did not use it.',bad_kind:'The plan had an invalid alarm type, so nothing was done.',bad_time:'The plan had an invalid time, so nothing was done.',in_the_past:'The plan had a time in the past, so nothing was done.',too_far:'The plan had a time more than a year away, so nothing was done.',more_than_one_screen:'The plan tried to open more than one screen, so nothing was done.',bad_app:'The plan named no valid app, so nothing was done.',bad_url:'The plan had a link that is not a valid http or https link, so nothing was done.',bad_body:'The plan had no message text, so nothing was done.',bad_number:'The plan had an invalid phone number, so nothing was done.',bad_email:'The plan had an invalid email address, so nothing was done.',bad_channel:'The plan had an invalid message type, so nothing was done.',unknown_tool:'The plan asked for something this app does not support, so nothing was done.'};
+var taskPlan=null,taskBusy=false,taskBtns=[],TASK_TTL=600000;
+function taskDrop(){taskPlan=null;taskBusy=false;taskBtns.forEach(function(x){x.disabled=true;});taskBtns=[];}
+function runTask(g){
+  if(!(window.AndroidPlan&&window.AndroidPlan.available&&window.AndroidPlan.available())){bubble('ai','Task mode is not available in this build or AI is not connected.');return;}
+  if(taskBusy){bubble('ai note','Still planning the previous task.');return;}
+  if(!g){bubble('ai','Type the task first, then press TASK. Example: set an alarm for 7 am tomorrow and open YouTube.');return;}
+  taskBusy=true;taskPlan=null;
+  var id='t'+Date.now(),dots=bubble('ai','Planning...');
+  var to=setTimeout(function(){if(taskBusy){taskBusy=false;dots.remove();bubble('ai','Planning timed out. Nothing was done.');}},60000);
+  window.onPlanResult=function(rid,js){if(rid!==id||!taskBusy)return;clearTimeout(to);taskBusy=false;dots.remove();
+    var o;try{o=JSON.parse(js);}catch(e){bubble('ai','Planning failed. Nothing was done.');return;}
+    if(o.failed){bubble('ai','Planning failed, so nothing was done. '+o.failed);return;}
+    if(!o.ok){bubble('ai',(TASK_ERR[o.error]||'Nothing was done ('+o.error+').')+(o.model_text?' Gemini said: '+o.model_text:''));return;}
+    showPlan(o);};
+  window.AndroidPlan.plan(id,g);}
+function showPlan(o){
+  taskBtns.forEach(function(x){x.disabled=true;});taskBtns=[];o.t=Date.now();taskPlan=o;
+  var b=bubble('ai','Here is the plan. Nothing has been done yet. Only the '+o.steps.length+' step'+(o.steps.length===1?'':'s')+' below will run:');
+  var ol=document.createElement('ol');ol.className='plan';
+  o.steps.forEach(function(st){var li=document.createElement('li');li.textContent=st.text;ol.appendChild(li);});
+  b.appendChild(ol);
+  var ok=document.createElement('button'),no=document.createElement('button');
+  [ok,no].forEach(function(x){x.type='button';x.className='rty';x.style.marginRight='8px';});
+  ok.textContent='CONFIRM';no.textContent='CANCEL';
+  ok.addEventListener('click',function(){if(taskPlan!==o)return;taskPlan=null;ok.disabled=no.disabled=true;
+    if(Date.now()-o.t>TASK_TTL){bubble('ai','This plan is more than 10 minutes old, so I did not run it. Nothing was done. Tap TASK again to plan it afresh.');return;}
+    execPlan(o);});
+  no.addEventListener('click',function(){if(taskPlan!==o)return;taskPlan=null;ok.disabled=no.disabled=true;bubble('ai','Cancelled. Nothing was done.');});
+  b.appendChild(ok);b.appendChild(no);taskBtns=[ok,no];
+  var n=document.createElement('div');n.style.cssText='margin-top:6px;font-size:11px;opacity:.7';n.textContent='Planned by '+o.model+'. Only your request text was sent to Gemini.';b.appendChild(n);}
+function stepRun(st){var a=st.args,r;
+  try{
+    if(st.tool==='set_alarm'){if(!schedOK())return {ok:false,msg:'alarms are not available in this build'};
+      r=JSON.parse(window.AndroidSched.add(a.kind,a.title,a.y,a.mo,a.d,a.h,a.mi));return r.ok?{ok:true,msg:'the phone accepted it'}:{ok:false,msg:ERR[r.error]||r.error};}
+    if(!window.AndroidApps)return {ok:false,msg:'opening apps is not available in this build'};
+    if(st.tool==='open_app'){var f=JSON.parse(window.AndroidApps.find(a.name));
+      if(!f.items.length)return {ok:false,msg:'no app named "'+a.name+'" has a launcher icon on this phone'};
+      if(!f.exact)return {ok:false,msg:'"'+a.name+'" matches more than one app ('+f.items.map(function(i){return i.label;}).join(', ')+'), so I did not guess'};
+      r=JSON.parse(window.AndroidApps.open(f.items[0].pkg));return r.ok?{ok:true,msg:'asked Android to open '+f.items[0].label}:{ok:false,msg:hoFail(r)};}
+    if(st.tool==='open_link')r=JSON.parse(window.AndroidApps.handoff('web',a.url,''));
+    else if(st.tool==='compose_message')r=a.channel==='share'?JSON.parse(window.AndroidApps.handoff('share',a.body,'')):JSON.parse(window.AndroidApps.handoff(a.channel,a.to,a.body));
+    else return {ok:false,msg:'unknown step'};
+    return r.ok?{ok:true,msg:st.tool==='compose_message'?'opened the message screen. It is NOT sent: you must tap Send':'asked Android to open it'}:{ok:false,msg:hoFail(r)};
+  }catch(e){return {ok:false,msg:'error'};}}
+function execPlan(o){
+  var lines=[],okN=0;
+  o.steps.forEach(function(st,i){var r=stepRun(st);if(r.ok)okN++;lines.push((i+1)+'. '+(r.ok?'DONE':'FAILED')+': '+st.text+' - '+r.msg);});
+  bubble('ai',(okN===o.steps.length?'All '+okN+' steps were accepted by Android.':okN+' of '+o.steps.length+' steps were accepted by Android.')+'\n'+lines.join('\n')+'\n"Accepted" means Android took the request; I cannot see what happens inside other apps.');}
+document.getElementById('tbtn').addEventListener('click',function(){var t=inp.value.trim();if(aiBusy){bubble('ai note','Wait for the current reply first.');return;}
+  if(t){bubble('me','[task] '+t);inp.value='';}runTask(t);});
 function send(){
   var t=inp.value.trim();
   if(attOn){
