@@ -33,7 +33,7 @@ import java.util.concurrent.Executor;
 
 public class MainActivity extends Activity {
   private WebView wv;
-  private GenerativeModelFutures model, model2;
+  private GenerativeModelFutures model, model2, planner;
   private SpeechRecognizer sr;
   private String initError = null;
   private byte[] attBytes; private String attMime;
@@ -93,6 +93,46 @@ public class MainActivity extends Activity {
     // New chat: forgets the conversation and any attached or pending file.
     @JavascriptInterface public void reset() { gen++; hist.clear(); pendText = null; pendBytes = null; pendMime = null; pendName = null; attBytes = null; attMime = null; attName = null; busy = false; trimmedNote = false; dropShare(); }
     @JavascriptInterface public int turns() { return hist.size() / 2; }
+  }
+
+
+  static final String PLAN_MODEL = "gemini-3.5-flash-lite";
+  private boolean planBusy;
+  /** Task mode. Sends ONLY the request text and the phone's local date/time to Gemini (no history, memory, files, contacts or app list). Result: window.onPlanResult(id, json). */
+  public class PlanBridge {
+    @JavascriptInterface public boolean available() { return planner != null; }
+    @JavascriptInterface public void plan(final String id, final String goal) {
+      if (planner == null) { planOut(id, new JSONObject(), "AI is not set up on this device"); return; }
+      if (planBusy) { planOut(id, new JSONObject(), "Still planning the previous task."); return; }
+      if (goal == null || goal.trim().isEmpty() || goal.length() > 1500) { planOut(id, new JSONObject(), "Describe the task in a sentence or two."); return; }
+      planBusy = true;
+      try {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        String now = String.format(java.util.Locale.US, "Now (phone local time, %s): %04d-%02d-%02dT%02d:%02d, weekday %d (1=Sunday).", java.util.TimeZone.getDefault().getID(), c.get(1), c.get(2) + 1, c.get(5), c.get(11), c.get(12), c.get(7));
+        final ListenableFuture<GenerateContentResponse> f = planner.generateContent(new Content.Builder().setRole("user").addText(now + "\nRequest: " + goal.trim()).build());
+        f.addListener(new Runnable() { public void run() {
+          planBusy = false;
+          try {
+            GenerateContentResponse r = f.get();
+            JSONArray calls = new JSONArray();
+            java.util.List<com.google.firebase.ai.type.FunctionCallPart> fc = r.getFunctionCalls();
+            if (fc != null) for (com.google.firebase.ai.type.FunctionCallPart p : fc) {
+              JSONObject args = new JSONObject();
+              for (java.util.Map.Entry<String, kotlinx.serialization.json.JsonElement> e : p.getArgs().entrySet()) args.put(e.getKey(), new org.json.JSONTokener(e.getValue().toString()).nextValue());
+              calls.put(new JSONObject().put("name", p.getName()).put("args", args));
+            }
+            if (calls.length() == 0) { String t = null; try { t = r.getText(); } catch (Throwable x) { }
+              planOut(id, new JSONObject().put("ok", false).put("error", "no_actions").put("model_text", t == null ? "" : t.length() > 400 ? t.substring(0, 400) : t), null); return; }
+            JSONObject v = TaskPlan.validate(calls, System.currentTimeMillis());
+            planOut(id, v.put("model", PLAN_MODEL), null);
+          } catch (Throwable e) { planOut(id, new JSONObject(), "The planner call failed (" + PLAN_MODEL + "): " + errText(e)); }
+        }}, new Executor() { public void execute(Runnable r) { runOnUiThread(r); } });
+      } catch (Throwable e) { planBusy = false; planOut(id, new JSONObject(), "Could not start planning (" + PLAN_MODEL + "): " + errText(e)); }
+    }
+    private void planOut(String id, JSONObject o, String err) {
+      try { if (err != null) o.put("ok", false).put("failed", err); } catch (Exception e) { }
+      evalJs("window.onPlanResult&&window.onPlanResult(" + JSONObject.quote(id) + "," + JSONObject.quote(o.toString()) + ")");
+    }
   }
 
   private void start(final String id) {
@@ -420,6 +460,7 @@ public class MainActivity extends Activity {
           .generativeModel("gemini-3.8-flash", new com.google.firebase.ai.type.GenerationConfig.Builder().setThinkingConfig(new com.google.firebase.ai.type.ThinkingConfig.Builder().setThinkingLevel(com.google.firebase.ai.type.ThinkingLevel.LOW).build()).build(), null, null, null, sys);
       model = GenerativeModelFutures.from(gm);
       model2 = GenerativeModelFutures.from(FirebaseAI.getInstance(GenerativeBackend.googleAI()).generativeModel("gemini-3.5-flash-lite", null, null, null, null, sys));
+      try { planner = GenerativeModelFutures.from(FirebaseAI.getInstance(GenerativeBackend.googleAI()).generativeModel(PLAN_MODEL, null, null, java.util.Arrays.asList(TaskPlan.tools()), null, new Content.Builder().addText(TaskPlan.PLANNER_PROMPT).build())); } catch (Throwable pe) { planner = null; }
     } catch (Throwable e) {
       initError = errText(e);
       model = null;
@@ -432,6 +473,7 @@ public class MainActivity extends Activity {
     s.setMediaPlaybackRequiresUserGesture(true);
     wv.addJavascriptInterface(new ClipboardBridge(), "AndroidClipboard");
     wv.addJavascriptInterface(new AiBridge(), "AndroidAI");
+    wv.addJavascriptInterface(new PlanBridge(), "AndroidPlan");
     wv.addJavascriptInterface(new SchedBridge(), "AndroidSched");
     wv.addJavascriptInterface(new VoiceBridge(), "AndroidVoice");
     wv.addJavascriptInterface(new AttachBridge(), "AndroidAttach");
