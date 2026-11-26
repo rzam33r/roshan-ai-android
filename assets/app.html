@@ -98,6 +98,7 @@
     padding:0 12px; font:inherit; font-size:12px; letter-spacing:.12em; cursor:pointer;
     text-shadow:0 0 8px rgba(111,242,255,.7)}
   #send:active{transform:scale(.96)}
+  #dbtn{background:rgba(87,200,255,.12);border:1px solid rgba(87,200,255,.5);color:#bfeaff;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
   #tbtn{background:rgba(87,255,176,.12);border:1px solid rgba(87,255,176,.5);color:#bfffe0;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
   .plan{margin-top:6px;padding-left:16px}
   #mic{background:rgba(183,140,255,.14);border:1px solid rgba(183,140,255,.5);color:#d9c2ff;border-radius:10px;padding:0 8px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer}
@@ -115,7 +116,7 @@
   /* composer: full-width typing field on top, four buttons in their own row below */
   #bar{flex-wrap:wrap; gap:8px}
   #inp{flex:1 1 100%; order:0; width:100%}
-  #pbtn,#fbtn,#tbtn,#mic,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
+  #pbtn,#fbtn,#tbtn,#dbtn,#mic,#send{order:1; flex:1 1 0; min-width:0; min-height:42px; padding:0 4px; font-size:11px; text-align:center}
 #plib{display:none;max-height:42vh;overflow:auto;border-top:1px solid #1d6;padding:8px;background:rgba(0,0,0,.82)}
 #plib.on{display:block}
 #plib h4{margin:6px 0 4px;font-size:11px;letter-spacing:1px;color:#7fe}
@@ -168,6 +169,7 @@
       <button id="pbtn" type="button">PROMPTS</button>
       <button id="fbtn" type="button">FILE</button>
       <button id="tbtn" type="button">TASK</button>
+      <button id="dbtn" type="button">DRIVE</button>
       <button id="mic" type="button">MIC</button>
       <button id="send" type="button">SEND</button>
     </div>
@@ -906,6 +908,29 @@ function execPlan(o){
   bubble('ai',(okN===o.steps.length?'All '+okN+' steps were accepted by Android.':okN+' of '+o.steps.length+' steps were accepted by Android.')+'\n'+lines.join('\n')+'\n"Accepted" means Android took the request; I cannot see what happens inside other apps.');}
 document.getElementById('tbtn').addEventListener('click',function(){var t=inp.value.trim();if(aiBusy){bubble('ai note','Wait for the current reply first.');return;}
   if(t){bubble('me','[task] '+t);inp.value='';}runTask(t);});
+
+/* Drive: read-only file-name search. Results are drawn here only. They are never sent to Gemini, the planner or the chat memory. */
+var DRIVE_ERR={empty:'Type part of a file name first. Example: drive invoice',busy:'Still searching Drive.',cancelled:'Drive access was not allowed, so nothing was searched.',auth_failed:'Google sign-in for Drive did not complete, so nothing was searched.',denied:'Google refused Drive access. Try again and allow it, or the sign-in may have expired.',http_error:'Drive search failed.',network:'Could not reach Drive. Check the connection.',too_big:'Drive returned too much data, so I did not use it.'};
+var driveBusy=false;
+function fmtMod(m){return m?m.slice(0,10):'';}
+function runDrive(term){
+  if(!(window.AndroidDrive&&window.AndroidDrive.search)){bubble('ai','Drive search is not available in this build.');return;}
+  if(driveBusy){bubble('ai note','Still searching Drive.');return;}
+  if(!term){bubble('ai',DRIVE_ERR.empty);return;}
+  driveBusy=true;var id='d'+Date.now(),dots=bubble('ai','Searching Drive file names...');
+  var to=setTimeout(function(){if(driveBusy){driveBusy=false;dots.remove();bubble('ai','Drive search timed out.');}},120000);
+  window.onDriveResult=function(rid,js){if(rid!==id||!driveBusy)return;clearTimeout(to);driveBusy=false;dots.remove();
+    var o;try{o=JSON.parse(js);}catch(e){bubble('ai','Drive search failed.');return;}
+    if(!o.ok){bubble('ai',DRIVE_ERR[o.error]||'Drive search failed.');return;}
+    if(!o.items.length){bubble('ai','No Drive files with that in the name.');return;}
+    var b=bubble('ai','Drive files matching the name (newest first). Only names are searched, not contents:');
+    o.items.forEach(function(it){var r=document.createElement('div');r.className='msg ai';r.textContent=it.name+(it.modified?'  ('+fmtMod(it.modified)+')':'');
+      var ob=document.createElement('button');ob.type='button';ob.textContent='OPEN';ob.style.cssText='margin-left:8px;background:rgba(87,200,255,.12);border:1px solid rgba(87,200,255,.5);color:#bfeaff;border-radius:8px;padding:3px 10px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer';
+      ob.addEventListener('click',function(){if(!window.AndroidDrive.open(it.link))bubble('ai','Could not open that file.');});
+      r.appendChild(ob);log.appendChild(r);});log.scrollTop=log.scrollHeight;};
+  window.AndroidDrive.search(id,term);}
+document.getElementById('dbtn').addEventListener('click',function(){var t=inp.value.trim();if(aiBusy){bubble('ai note','Wait for the current reply first.');return;}
+  if(t){bubble('me','[drive] '+t);inp.value='';}runDrive(t);});
 function send(){
   var t=inp.value.trim();
   if(attOn){
@@ -918,6 +943,7 @@ function send(){
   bubble('me',t);
   inp.value='';inp.focus();
   if(t.toLowerCase()==='/graphics'){openPicker();return;}
+  var dm=t.match(/^drive\s+(.+)$/i);if(dm){runDrive(dm[1]);return;}
   if(handleCommand(t))return;
   if(window.AndroidAI&&window.AndroidAI.available&&window.AndroidAI.available()){aiAsk(t);return;}
   bubble('ai','AI chat is not connected in this version. Alarms and reminders still work: try "remind me to call mom at 5 pm".');
