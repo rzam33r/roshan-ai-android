@@ -32,3 +32,10 @@ jobs:
         run: bash tests/run_tests.sh
         env:
           RAI_DEP_CACHE: ${{ github.workspace }}/.cache/rai-deps
+      - name: Save the unsigned APK for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoshanAI-unsigned-v${{ github.run_number }}
+          path: out/RoshanAI-unsigned-aligned.apk
+          retention-days: 30
+          if-no-files-found: error
