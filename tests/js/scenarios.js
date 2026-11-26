@@ -56,7 +56,7 @@ window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'denied',det
 var lt=document.getElementById('log').lastChild.textContent;ok('drive error is generic, no names',/Google refused Drive access/.test(lt)&&lt.indexOf('Secret')<0);
 window.__calls=[];document.getElementById('inp').value='drive ';document.getElementById('send').click();
 ok('empty drive term does not call bridge',window.__calls.indexOf('drive:')<0);
-document.getElementById('inp').value='';document.getElementById('dbtn').click();ok('DRIVE button with empty box asks for a name',/Type part of a file name/.test(document.getElementById('log').lastChild.textContent));
+document.getElementById('inp').value='';window.__calls=[];document.getElementById('dbtn').click();ok('G DRIVE button with empty box opens the Drive root',window.__calls.join()==='dlist:root');window.onDriveResult(window.__drv.id,JSON.stringify({ok:true,error:'',items:[]}));
 // Drive then ordinary Gemini chat, FILE and TASK: nothing shown by Drive may reach the model-bound bridges
 (function(){var sent=[];var oa=window.AndroidAI;
 window.AndroidAI={available:function(){return true;},reset:function(){},retry:function(){},ask:function(id,q){sent.push('ask:'+q);setTimeout(function(){},0);window.__aid=id;}};
@@ -70,8 +70,68 @@ document.getElementById('inp').value='drive nothing';document.getElementById('se
 window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'network'}));
 window.__ps.id&&window.onPlanResult&&window.onPlanResult(window.__ps.id,JSON.stringify({ok:false,error:'no_actions'}));
 document.getElementById('inp').value='thanks';document.getElementById('send').click();
-var all=sent.join('|');
+window.onAiResult(window.__aid,true,'ok');var all=sent.join('|');
 ok('Gemini chat and TASK got only the typed words, no Drive query or file names',sent.length===3&&all.indexOf('Payroll')<0&&all.indexOf('Secret')<0&&all.indexOf('drive')<0&&/ask:what is the capital of France/.test(all)&&/plan:plan my week/.test(all)&&/ask:thanks/.test(all));
 window.AndroidAI=oa;window.AndroidPlan.plan=op;})();
+
+// FILES file manager: browse, download, move, upload, new folder. Every write waits for an explicit confirm.
+(function(){
+function drv(o){window.onDriveResult(window.__drv.id,JSON.stringify(o));}
+function b(label){var all=[].slice.call(document.querySelectorAll('#log button'));var s=0;all.forEach(function(x,i){if(x.textContent==='UPLOAD HERE')s=i;});if(s>0&&all[s-1].textContent==='BACK')s--;return all.slice(s).filter(function(x){return x.textContent===label;});}
+function lastb(label){var a=b(label);return a[a.length-1];}
+function txt(){return document.getElementById('log').textContent;}
+aiBusy=false;window.__calls=[];document.getElementById('inp').value='';document.getElementById('dbtn').click();
+ok('G DRIVE opens root list',window.__calls.join()==='dlist:root');
+var items=[{id:'fold11111',name:'Taxes',type:'application/vnd.google-apps.folder',folder:true,size:-1,modified:'2026-01-01T00:00:00Z',shared:false,link:''},{id:'file22222',name:'Plan.docx',type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',folder:false,size:2048,modified:'2026-02-01T00:00:00Z',shared:false,link:'https://drive.google.com/file/d/file22222/view'},{id:'gdoc33333',name:'Notes',type:'application/vnd.google-apps.document',folder:false,size:-1,modified:'',shared:false,link:''}];
+drv({ok:true,error:'',op:'list',items:items});
+ok('root shows folder and files with buttons',/Drive: My Drive/.test(txt())&&b('OPEN FOLDER').length===1&&b('DOWNLOAD').length===2&&b('MOVE').length===2&&b('UPLOAD HERE').length===1&&b('NEW FOLDER').length===1);
+window.__calls=[];lastb('OPEN FOLDER').click();ok('OPEN FOLDER lists that folder',window.__calls.join()==='dlist:fold11111');
+drv({ok:true,error:'',op:'list',items:[]});ok('empty folder shown with BACK',/Taxes\s+\(empty\)/.test(txt())&&b('BACK').length>=1);
+window.__calls=[];lastb('BACK').click();ok('BACK lists root again',window.__calls.join()==='dlist:root');drv({ok:true,error:'',op:'list',items:items});
+// download
+window.__calls=[];b('DOWNLOAD')[0].click();ok('DOWNLOAD passes id and type',window.__calls.join()==='ddl:file22222|application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+drv({ok:true,error:'',op:'dl',items:[],info:{name:'Plan.docx',bytes:2048}});ok('download result says saved to Downloads',/Saved Plan\.docx to your phone Downloads/.test(txt()));
+window.__calls=[];b('DOWNLOAD')[1].click();drv({ok:false,error:'export_too_big'});ok('export limit stated honestly',/10 MB/.test(txt()));
+// move: nothing changes before CONFIRM
+window.__calls=[];b('MOVE')[0].click();ok('MOVE only arms move mode',window.__calls.length===0&&/Moving: Plan\.docx/.test(txt()));
+window.__calls=[];lastb('OPEN FOLDER').click();drv({ok:true,error:'',op:'list',items:[]});
+window.__calls=[];lastb('MOVE HERE').click();ok('MOVE HERE first only reads who can see the source',window.__calls.join()==='daccess:root');
+drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.',name:'My Drive'}});
+ok('then reads the destination',window.__calls.join()==='daccess:root,daccess:fold11111');
+drv({ok:true,error:'',op:'access',items:[],info:{level:'shared',text:'Anyone with the link can see this folder.',name:'Taxes'}});
+ok('confirm shows source, destination and access change; no move yet',/Move "Plan\.docx" from "My Drive" to "Taxes"/.test(txt())&&/Anyone with the link/.test(txt())&&/may change/.test(txt())&&window.__calls.join().indexOf('dmv')<0);
+lastb('CANCEL').click();ok('cancel does not move',window.__calls.join().indexOf('dmv')<0);
+window.__calls=[];lastb('MOVE HERE').click();drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.'}});drv({ok:true,error:'',op:'access',items:[],info:{level:'private',text:'Only you can see this folder.'}});
+window.__calls=[];lastb('MOVE').click();ok('confirm MOVE calls bridge with file, from, to',window.__calls.join()==='dmv:file22222|root|fold11111');
+drv({ok:true,error:'',op:'mv',items:[],info:{name:'Plan.docx'}});ok('move result shown, then folder refreshed',/Moved Plan\.docx to Taxes/.test(txt()));
+drv({ok:true,error:'',op:'list',items:[]});
+// upload and new folder wait for confirm
+window.__calls=[];lastb('UPLOAD HERE').click();ok('UPLOAD HERE checks access first, no upload yet',window.__calls.join()==='daccess:fold11111');
+drv({ok:true,error:'',op:'access',items:[],info:{level:'unknown',text:'Google did not say who can see this folder, so it may be shared.'}});
+ok('upload confirm names folder, warns, says never replaces',/Upload a file from your phone into "Taxes"/.test(txt())&&/may be shared/.test(txt())&&/never replaced/.test(txt())&&window.__calls.join().indexOf('dup')<0);
+window.__calls=[];lastb('CONTINUE').click();ok('CONTINUE starts the picker upload',window.__calls.join()==='dup:fold11111');
+drv({ok:true,error:'',op:'up',items:[],info:{name:'a (2).pdf',renamed:true,bytes:5}});ok('upload result mentions the new name',/Uploaded a \(2\)\.pdf/.test(txt())&&/new name/.test(txt()));drv({ok:true,error:'',op:'list',items:[]});
+window.__calls=[];lastb('NEW FOLDER').click();var ti=document.querySelector('#log input[type=text]');ti.value='Receipts';lastb('CREATE').click();
+ok('NEW FOLDER checks access first',window.__calls.join()==='daccess:fold11111');
+drv({ok:true,error:'',op:'access',items:[],info:{level:'shared',text:'Other people can see this folder (1 people, 0 groups, 0 domains).'}});
+ok('shared parent needs confirm before mkdir',window.__calls.join().indexOf('dmk')<0&&/Create "Receipts" inside "Taxes"/.test(txt()));
+window.__calls=[];lastb('CREATE').click();ok('confirmed mkdir passes name',window.__calls.join()==='dmk:fold11111|Receipts');
+drv({ok:true,error:'',op:'mkdir',items:[],info:{name:'Receipts'}});drv({ok:true,error:'',op:'list',items:[]});
+// errors are fixed sentences
+window.__calls=[];lastb('UPLOAD HERE').click();drv({ok:false,error:'unsupported',detail:'Secret Drive.xlsx'});ok('error text is generic',/shared drive/.test(txt())&&txt().indexOf('Secret Drive')<0);
+// FILES then Gemini / TASK: only typed words go to the model bridges
+var sent=[];var oa=window.AndroidAI,op=window.AndroidPlan.plan;
+window.AndroidAI={available:function(){return true;},reset:function(){window.__calls.push('reset');},retry:function(){},ask:function(id,q){sent.push('ask:'+q);window.__aid=id;}};
+window.AndroidPlan.plan=function(id,g){sent.push('plan:'+g);window.__ps.id=id;};
+document.getElementById('inp').value='hello there';document.getElementById('send').click();window.onAiResult(window.__aid,true,'Hi');
+document.getElementById('inp').value='plan lunch';document.getElementById('tbtn').click();
+window.onAiResult(window.__aid,true,'ok');var all=sent.join('|');ok('after file manager use, model bridges got only typed words',sent.length===2&&all.indexOf('Taxes')<0&&all.indexOf('Plan.docx')<0&&all.indexOf('Receipts')<0);
+window.AndroidAI=oa;window.AndroidPlan.plan=op;
+// PROMPTS removed, NEW CHAT stays visible and works
+var all2=[].slice.call(document.querySelectorAll('button')).map(function(x){return x.textContent;});
+ok('PROMPTS button is gone, no prompt panel',all2.indexOf('PROMPTS')<0&&!document.getElementById('plib'));
+ok('NEW CHAT, FILE, TASK, G DRIVE, MIC, SEND still present',['NEW CHAT','FILE','TASK','G DRIVE','MIC','SEND'].every(function(n){return all2.indexOf(n)>=0;}));
+window.__calls=[];document.getElementById('pbtn').click();ok('NEW CHAT button resets the conversation',window.__calls.indexOf('reset')>=0);
+})();
 res.push('JSTEST DONE');var p=document.createElement('pre');p.id='jsres';p.textContent=res.join('\n');document.body.appendChild(p);
 })();
