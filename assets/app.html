@@ -26,6 +26,11 @@
   .chips{display:flex; gap:10px; margin-top:6px; font-size:9px; letter-spacing:.18em; color:var(--dim)}
   .chips b{color:var(--cyan); font-weight:400}
   .chips .gfx{margin-left:auto; color:var(--purple)}
+  .chips span[role=button]{cursor:pointer}
+  header{position:relative}
+  .menu{position:absolute;right:8px;top:100%;z-index:50;background:#0b1220;border:1px solid rgba(87,200,255,.5);border-radius:10px;padding:4px;min-width:150px}
+  .menu.left{right:auto;left:8px}
+  .menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#bfeaff;font:inherit;font-size:12px;letter-spacing:.08em;padding:10px 8px;cursor:pointer}
   /* ---------- dashboard ---------- */
   #dash{position:absolute; inset:0; z-index:0; pointer-events:none}
   body.pk #dash{z-index:20; pointer-events:auto}
@@ -125,7 +130,8 @@
     <h1>ROSHAN AI</h1>
     <div class="sub">PERSONAL COMMAND DECK</div>
     <div class="rule"></div>
-    <div class="chips"><span>SPIN <b id="chip-spin">240.0°</b></span><span>AXIS <b>LOCK</b></span><span>AI <b>CLOUD</b></span><span class="gfx" id="chip-gfx">FILAMENT TORUS</span></div>
+    <div class="chips"><span>SPIN <b id="chip-spin">240.0°</b></span><span>AXIS <b>LOCK</b></span><span id="chip-cloud" role="button" tabindex="0">AI <b>CLOUD &#9662;</b></span><span class="gfx" id="chip-cmd" role="button" tabindex="0">/command &#9662;</span></div>
+    <div id="menu" class="menu" style="display:none"></div>
   </header>
 
   <div id="dash">
@@ -160,7 +166,7 @@
       <input id="inp" type="text" placeholder="Type a command…" autocomplete="off" enterkeyhint="send">
       <button id="fbtn" type="button">FILES</button>
       <button id="tbtn" type="button">TASK</button>
-      <button id="dbtn" type="button">G DRIVE</button>
+      <button id="dbtn" type="button" style="display:none" aria-hidden="true" tabindex="-1">G DRIVE</button>
       <button id="send" type="button">SEND</button>
     </div>
   </div>
@@ -567,7 +573,7 @@ setInterval(function(){
 
 /* ================= graphics picker ================= */
 var picker=document.getElementById('picker'),grid=document.getElementById('grid');
-var chipGfx=document.getElementById('chip-gfx');
+var chipGfx=document.createElement('span');
 var previewTimers=[];
 DESIGNS.forEach(function(d,idx){
   var card=document.createElement('div');card.className='card'+(idx===0?' active':'');
@@ -997,6 +1003,23 @@ function runDrive(term){
       b.appendChild(r);});log.scrollTop=log.scrollHeight;});}
 document.getElementById('dbtn').addEventListener('click',function(){var t=inp.value.trim();if(aiBusy){bubble('ai note','Wait for the current reply first.');return;}
   if(t){bubble('me','[files] '+t);inp.value='';}runDrive(t);});
+var menuEl=document.getElementById('menu');
+function closeMenu(){menuEl.style.display='none';menuEl.innerHTML='';}
+function openMenu(items,left){
+  if(menuEl.style.display!=='none'&&menuEl.getAttribute('data-k')===items[0][0]){closeMenu();return;}
+  menuEl.innerHTML='';menuEl.setAttribute('data-k',items[0][0]);menuEl.className='menu'+(left?' left':'');
+  items.forEach(function(it){var b=document.createElement('button');b.type='button';b.textContent=it[0];b.addEventListener('click',function(){closeMenu();it[1]();});menuEl.appendChild(b);});
+  menuEl.style.display='block';}
+function menuBusy(){if(aiBusy){bubble('ai note','Wait for the current reply first.');return true;}return false;}
+document.getElementById('chip-cmd').addEventListener('click',function(e){e.stopPropagation();openMenu([
+  ['/graphics',function(){openPicker();}],
+  ['/new',function(){if(!menuBusy())newChat();}],
+  ['/files',function(){document.getElementById('fbtn').click();}],
+  ['/task',function(){document.getElementById('tbtn').click();}],
+  ['/drive',function(){document.getElementById('dbtn').click();}]],false);});
+document.getElementById('chip-cloud').addEventListener('click',function(e){e.stopPropagation();openMenu([
+  ['G Drive',function(){document.getElementById('dbtn').click();}]],true);});
+document.addEventListener('click',function(){closeMenu();});
 function send(){
   var t=inp.value.trim();
   if(/^(new chat|\/new)$/i.test(t)){inp.value='';newChat();return;}
