@@ -196,5 +196,11 @@ window.onDriveResult(window.__drv.id,JSON.stringify({ok:false,error:'auth_p_x',i
 ok('Cloud G Drive runs Drive flow',window.__calls.join()==='dlist:root');
 ok('menu selections do not reach Gemini or planner',window.__calls.indexOf('ask')<0);
 })();
+
+// real-touch regression: header must not be pointer-events:none for the chips, and header must sit above #dash
+(function(){var cs=function(id){return getComputedStyle(document.getElementById(id)).pointerEvents;};
+ok('chips accept pointer events (not inherited none)',cs('chip-cmd')==='auto'&&cs('chip-cloud')==='auto');
+ok('menu accepts pointer events',getComputedStyle(document.getElementById('menu')).pointerEvents==='auto');
+document.body.classList.remove('pk');ok('header stacks above dash',parseInt(getComputedStyle(document.querySelector('header')).zIndex,10)>parseInt(getComputedStyle(document.getElementById('dash')).zIndex,10));})();
 res.push('JSTEST DONE');var p=document.createElement('pre');p.id='jsres';p.textContent=res.join('\n');document.body.appendChild(p);
 })();
