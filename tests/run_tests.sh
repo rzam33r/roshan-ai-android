@@ -12,7 +12,7 @@ APPJARS="$(ls .deps/jars/*.jar | tr '\n' ':')"
 TESTCP="$(ls .testdeps/libs/*.jar | tr '\n' ':')"
 javac -nowarn -cp "$APPCP$TESTCP$APPJARS$AJ" -d out/tcls tests/*.java
 fail=0
-for t in ProviderTest DriveTest TaskPlanTest SharerTest LauncherTest MemTest OverloadTest AttachTest InitSmoke VoiceTest SchedTest AppCheckCfg; do
+for t in ProviderTest DriveTest TaskPlanTest SharerTest LauncherTest MemTest OverloadTest AttachTest InitSmoke VoiceTest SchedTest AppCheckCfg AuthProbe; do
   res=$(timeout 120 java --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED -Drobolectric.offline=true -Drobolectric.dependency.dir=.testdeps/libs -cp "out/tcls:$APPCP$TESTCP$APPJARS$AJ" org.junit.runner.JUnitCore com.roshanai.app.$t 2>&1 | grep -E '^OK|^Failures|^Tests run' | head -2 | tr '\n' ' ')
   echo "$t: ${res:-NO RESULT}"; case "$res" in OK*) ;; *) fail=1;; esac
 done
