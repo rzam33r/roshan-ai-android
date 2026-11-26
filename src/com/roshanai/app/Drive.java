@@ -169,7 +169,7 @@ public final class Drive {
       if (sharedDrive) { level = "unsupported"; text = "This is in a shared drive, which this app does not change."; }
       else if (anyone > 0) { level = "shared"; text = "Anyone with the link can see this folder."; }
       else if (domains > 0 || groups > 0 || users > 1) { level = "shared"; text = "Other people can see this folder (" + Math.max(0, users - 1) + " people, " + groups + " groups, " + domains + " domains)."; }
-      else if (shared) { level = "shared"; text = "This folder is shared with someone."; }
+      else if (shared) { level = "unknown"; text = "This folder is marked shared but Google did not list who can see it."; }
       else if (p != null && users <= 1) { level = "private"; text = "Only you can see this folder."; }
       else { level = "unknown"; text = "Google did not say who can see this folder, so it may be shared."; }
       r.put("level", level).put("text", text).put("name", cleanForShow(o.optString("name", "")));
