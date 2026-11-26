@@ -34,4 +34,4 @@ A release must be:
 
 Steps: raise `VERSION`, build (`bash build.sh`, JDK 17), sign with your key (`KEYSTORE=... KS_PASS_FILE=... bash build.sh`), then create the release on GitHub and attach `out/RoshanAI-signed.apk` renamed to `RoshanAI-<code>.apk`.
 
-The app needs `REQUEST_INSTALL_PACKAGES`. The first time, Android asks you to allow "Install unknown apps" for Roshan AI, and every install still shows Android's own confirmation screen.
+The app does not declare `REQUEST_INSTALL_PACKAGES` (owner has not approved it), so UPDATE NOW opens the GitHub release page and the signed APK is installed by hand. If that permission is approved and added to `AndroidManifest.xml`, the app installs the update itself after checking package, version and signing certificate; Android still shows its own confirmation.

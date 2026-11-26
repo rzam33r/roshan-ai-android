@@ -1118,6 +1118,7 @@ function updText(st,p){
   if(st==='confirm')return 'Android is asking you to confirm the update. Tap Update on that screen.';
   if(st==='allow')return 'Android needs your OK once: allow "Install unknown apps" for Roshan AI on the screen that opened, then come back and tap the green light again.';
   if(st==='none')return 'No update is waiting right now.';
+  if(st==='browser')return 'Opened the release page. Download the signed APK there and open it to update.';
   if(st==='done')return 'Updated.';
   var w=(st.split(':')[1]||'');
   var M={source:'The download link was not from this app\'s GitHub releases, so nothing was installed.',download:'The download did not finish. Nothing was installed. Tap the light to try again.',size:'The download size did not match the release, so nothing was installed.',checksum:'The download did not match its checksum, so nothing was installed.',package:'That file is not a Roshan AI app, so nothing was installed.',older:'That release is not newer than this app, so nothing was installed.',key:'That update is signed with a different key than this app, so Android would refuse it. Nothing was installed.',cancelled:'Update cancelled. Nothing changed.',installer:'Android did not open its install screen. Nothing changed.'};
@@ -1130,7 +1131,7 @@ window.onUpdateStatus=function(st,p){st=String(st);var t=updText(st,p|0);
 document.getElementById('upd').addEventListener('click',function(){
   if(!updI||!window.AndroidUpdate)return;
   var cur='';try{cur=window.AndroidUpdate.current();}catch(e){}
-  var b=bubble('ai','Update available: '+updI.name+(cur?' (you have '+cur+')':'')+', '+fmtSize(updI.size)+'.'+(updI.notes?'\nWhat\'s new:\n'+updI.notes:'')+'\nAndroid will ask you to confirm before installing.');
+  var b=bubble('ai','Update available: '+updI.name+(cur?' (you have '+cur+')':'')+', '+fmtSize(updI.size)+'.'+(updI.notes?'\nWhat\'s new:\n'+updI.notes:'')+'\nUPDATE NOW opens the download. Android will ask you to confirm before installing.');
   var row=document.createElement('div');
   row.appendChild(mkBtn('UPDATE NOW',function(){row.remove();updB=null;try{window.AndroidUpdate.install();}catch(e){}}));
   row.appendChild(mkBtn('LATER',function(){b.remove();}));

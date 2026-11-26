@@ -10,6 +10,7 @@ public final class Update {
   private Update() { }
   public static final String OWNER = "rzam33r", REPO = "roshan-ai-android", PKG = "com.roshanai.app";
   public static final String LATEST = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
+  public static final String RELEASES = "https://github.com/" + OWNER + "/" + REPO + "/releases/latest";
   public static final long MAX_BYTES = 100L * 1024 * 1024;
   public static final long CHECK_EVERY_MS = 6L * 3600 * 1000;
 

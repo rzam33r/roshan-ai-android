@@ -790,6 +790,14 @@ public class MainActivity extends Activity {
     final JSONObject info = updInfo;
     if (info == null) { updStatus("none", 0); return; }
     if (updBusy) return;
+    if (!hasInstallPermission()) {
+      // Without the install permission the app cannot install updates itself: open the release page so the signed APK can be downloaded by hand.
+      runOnUiThread(new Runnable() { public void run() {
+        try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(Update.RELEASES)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); updStatus("browser", 0); }
+        catch (Throwable e) { updFail("installer"); }
+      }});
+      return;
+    }
     if (android.os.Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
       updStatus("allow", 0);
       runOnUiThread(new Runnable() { public void run() {
@@ -855,6 +863,13 @@ public class MainActivity extends Activity {
       } catch (Throwable e) { updFail("error"); }
       finally { if (f != null) f.delete(); }
     }}).start();
+  }
+  private boolean hasInstallPermission() {
+    try {
+      String[] rp = getPackageManager().getPackageInfo(getPackageName(), android.content.pm.PackageManager.GET_PERMISSIONS).requestedPermissions;
+      if (rp != null) for (String p : rp) if ("android.permission.REQUEST_INSTALL_PACKAGES".equals(p)) return true;
+    } catch (Throwable e) { }
+    return false;
   }
   private void updFail(String why) { updBusy = false; updStatus("failed:" + why, 0); }
   @Override protected void onNewIntent(Intent i) {
